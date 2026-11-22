@@ -1,0 +1,193 @@
+# 专业设置及排课管理系统（MIS）
+
+面向北京科技大学本科教学运行管理，覆盖 **“专业设置—课程设置—排课—课表服务”** 全流程，
+并延伸支持辅修/二学位、转专业学分转换、课程评价、角色权限与操作日志审计。
+
+系统完全依据《系统分析、设计、规划报告》中的系统规划、数据字典（2.2）、数据库设计（3.4）、
+处理过程设计（3.5）与输入输出设计（3.6）实现。
+
+---
+
+## 一、技术栈
+
+| 层次 | 技术 | 说明 |
+| --- | --- | --- |
+| 前端 | Vue 3 + Vite + Element Plus | 单页应用，Axios 以 RESTful JSON 访问后端 |
+| 后端 | Java 17 + Spring Boot 3.2 | Controller—Service—Mapper 三层，业务规则集中在 Service |
+| 持久层 | MyBatis-Plus 3.5.7 | 条件构造器 + 自定义联表查询（ViewMapper） |
+| 数据库 | MySQL 8.0（InnoDB / utf8mb4） | 22 张业务表 + 1 个完整课表视图 |
+| 认证 | JWT + 拦截器 + RBAC | 令牌校验、功能权限码、数据范围（全校/本学院/本人） |
+
+## 二、目录结构
+
+```
+MIS/
+├── docs/database.sql                 # 建库建表、视图与初始数据（一键导入）
+├── backend/                          # Spring Boot 后端
+│   ├── pom.xml
+│   └── src/main/java/com/ustb/mis/
+│       ├── common/                   # 统一响应、业务异常、全局异常处理
+│       ├── config/                   # MyBatis-Plus、Web（拦截器/跨域）配置
+│       ├── security/                 # JWT、登录上下文、权限注解与拦截器
+│       ├── entity/                   # 22+3 个实体（对应数据字典业务表）
+│       ├── mapper/                   # BaseMapper + 联表查询 ViewMapper
+│       ├── service/                  # 认证、编码服务、方案、教学班、排课、评价、日志
+│       └── controller/               # 14 个 REST 控制器
+└── frontend/                         # Vue 3 前端
+    ├── vite.config.js                # /api 代理到 http://localhost:8081
+    └── src/
+        ├── api/                      # 接口封装
+        ├── store/                    # 登录态与权限判断
+        ├── router/                   # 路由与权限守卫
+        ├── layout/                   # 左侧菜单 + 顶部工具栏布局
+        └── views/                    # 16 个业务页面
+```
+
+## 三、快速启动
+
+### 1. 初始化数据库
+
+```bash
+mysql -uroot -p < docs/database.sql
+```
+
+脚本会重建 `mis` 库（含 20 个学院、15 个专业、40 门课程、14 个教学班、13 段排课、
+4 份培养方案、6 类角色与 8 个演示账号）。
+
+### 2. 启动后端（端口 8081）
+
+```bash
+cd backend
+mvn spring-boot:run
+```
+
+数据库连接配置见 `backend/src/main/resources/application.yml`：
+
+```yaml
+username: root
+password: tsy050904
+```
+
+### 3. 启动前端（端口 5173）
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+浏览器访问 <http://localhost:5173>。
+
+### 4. 演示账号
+
+| 账号 | 姓名 | 角色 | 数据范围 | 主要功能 |
+| --- | --- | --- | --- | --- |
+| `admin` | 系统管理员 | R01 系统管理员 | 全校 | 全部功能、角色授权、日志审计 |
+| `jwc` | 教务处管理员 | R02 教务处 | 全校 | 方案审核发布、课程审批、排课发布、评教组织 |
+| `xy09` | 计通学院教务员 | R03 学院教务员 | 本学院 | 方案编制、教学班生成、调课初审 |
+| `xy12` | 经管学院教务员 | R03 学院教务员 | 本学院 | 同上（经管学院） |
+| `t0901` | 李建国（教师） | R04 教师 | 本人 | 课程申报、调课申请、课表查询、评教结果 |
+| `stu001` | 赵一鸣（学生） | R05 学生 | 本人 | 课表查询、双学位报名、学分转换、评教 |
+| `room01` | 教室管理员 | R06 教室管理员/审计员 | 全校只读 | 教室占用查询 |
+
+**所有账号的登录密码均为 `tsy050904`。**
+
+## 四、功能模块与实现对照
+
+| 模块 | 界面 | 核心接口 | 对应设计文档 |
+| --- | --- | --- | --- |
+| 学院与专业 | `/colleges` | `GET/POST/PUT /colleges`、`/majors` | 3.5.1 学院与专业维护、3.6.2 |
+| 培养方案 | `/programs` | `/programs`、`/programs/courses`、`/programs/submit`、`/programs/review` | 3.5.1、3.6.3~3.6.4 |
+| 通识课程计划 | `/general-plan` | `/general-plans` | 3.5.1、3.6.5 |
+| 课程库 | `/courses` | `/courses`、`/courses/{id}/status` | 3.5.2、3.6.6 |
+| 新增课程申报 | `/course-apply` | `/new-course-applies`、`/{id}/audit` | 3.5.2、3.6.7~3.6.8 |
+| 教学班管理 | `/teaching-class` | `/teaching-classes`、`/batch-generate` | 3.5.3、3.6.9 |
+| 排课工作台 | `/schedule` | `/schedule/auto`、`/assign`、`/conflicts`、`/publish` | 3.5.3~3.5.4、3.6.10~3.6.11 |
+| 调课管理 | `/adjust` | `/adjustments`、`/{id}/approve`、`/restore` | 3.5.3、3.6.12 |
+| 课表查询 | `/timetable` | `/timetable`（教师/班级/教室/学生四视图） | 3.5.3、3.6.13 |
+| 辅修/双学位 | `/dual` | `/dual/enrolls`、`/study-records`、`/conflicts` | 3.5.5、3.6.14~3.6.16 |
+| 学分转换 | `/credit` | `/credit-transfers` | 3.5.6、3.6.17 |
+| 课程评价 | `/eval` | `/eval/plans`、`/submit`、`/stats` | 3.5.7、3.6.18~3.6.19 |
+| 角色与权限 | `/roles` | `/roles`、`/users` | 3.5.8、3.6.20 |
+| 操作日志 | `/logs` | `/logs` | 3.5.8、2.2.7 |
+
+## 五、数据库设计要点
+
+### 5.1 表清单（共 22 张业务表 + 1 视图）
+
+基础档案：`college`、`major`、`course`、`class_info`、`teacher`
+培养方案：`major_program`、`program_course`、`general_plan`
+课程与任务：`new_course_apply`、`teaching_class`
+排课：`classroom`、`schedule_rule`、`schedule_result`、`schedule_conflict`、`adjust_record`
+延伸业务：`dual_enroll`、`study_record`、`credit_apply`、`credit_item`
+评价监督：`eval_plan`、`eval_record`、`sys_role`、`sys_user`、`sys_user_role`、`audit_log`
+视图：`v_full_schedule`（课表唯一出口，仅展示已发布/已调课记录）
+
+### 5.2 关键约束
+
+- 组合主键：`major_program(专业, 年级, 方案类型)`、`program_course(+课程号)`、
+  `general_plan(学年, 课程号)`、`credit_item(申请编号, 明细序号)`
+- 唯一约束：课程名称、学院名称、角色名称、评教记录 `(方案, 教学班, 学号)`
+- 外键：全部业务外键均建立，方案删除级联删除明细，排课删除级联删除冲突记录
+- 受控冗余：`schedule_result.week_range` 以区间存储；`credit_apply.apply_credit` 由明细汇总回写；
+  `eval_record.score` 由分项按权重折算
+
+### 5.3 共享编码
+
+| 对象 | 规则 | 示例 |
+| --- | --- | --- |
+| 学院 | 2 位顺序码 | `09` |
+| 专业 | 教育部 6 位代码（特设专业带 T） | `080901`、`080717T` |
+| 课程 | 开课学院 2 位 + 5 位流水 | `0900125` |
+| 教学班 | 学年 4 位 + 学期 1 位 + 4 位流水 | `202610001` |
+| 排课 | `S` + 年份 + 4 位流水 | `S20260001` |
+| 单据 | 业务前缀 2 位 + 年份 + 4 位流水 | `AD20260001`、`CT20260001` |
+
+编码统一由 `CodeService` 发放，业务端不自编；编号一经分配不再复用。
+
+## 六、业务规则实现
+
+| 编号 | 规则 | 实现位置 |
+| --- | --- | --- |
+| BR-01 | 培养方案毕业总学分区间校验（主修 100~200，双学位 40~80） | `ProgramService.save` |
+| BR-02 | 同一课程在同一方案只能列入一次；先修课程须在前一学期或更早 | `ProgramService.addCourse` |
+| BR-03 | 方案课程为空或学分合计不达标不得提交评审 | `ProgramService.submit` |
+| BR-04 | 教学班容量上限不得小于面向班级人数 | `TeachingClassService.save` |
+| BR-05 | 存在未处理排课冲突时不允许发布课表 | `ScheduleService.publish` |
+| BR-06 | 已发布方案不得修改课程明细，已引用课程只能改大纲与考核方式 | `ProgramService` / `CourseController` |
+| BR-07 | 存在未确认跨院课程时不得提交评审 | `ProgramService.submit` |
+| BR-08 | 存在进行中教学班的课程不得停开 | `CourseController.changeStatus` |
+| BR-09 | 认定学分不得超过替代课程学分 | `DualController` / `CreditController` |
+| BR-10 | 学生同一学年只能报名一个双学位专业，录取受名额限制 | `DualController.enroll` |
+| BR-11 | 评教窗口外不能提交，同一学生对同一教学班只能提交一次 | `EvalService.submit` |
+
+## 七、排课算法说明
+
+采用 **“贪心初排 + 冲突记录 + 人工微调”**，不追求全局最优：
+
+1. **需求计算**：每周段数 = 计划学时 ÷ 上课周数 ÷ 2（四舍五入，至少 1 段）。
+2. **候选排序**：公共基础课（校级必修/通识）优先上午节次；其余课程优先靠后节次；
+   教师偏好节次前置。
+3. **硬约束校验**：教师不冲突、教室不冲突、面向班级不冲突、教室容量 ≥ 面向人数、
+   教室类型与教学形式匹配、不占用教师不可用时间。
+4. **教室选择**：同类型教室按容量升序（最佳匹配）。
+5. **未分配处理**：写入 `schedule_conflict`（冲突类型 + 描述 + 建议方案），
+   由教务员在工作台采纳建议或人工指定时段后重新校验。
+6. **发布**：校验无未处理冲突 → 批量置为已发布并锁定 → 写入操作日志并刷新课表视图。
+
+## 八、权限设计
+
+- **功能权限**：16 个权限码（P01~P16），由 `@RequirePerm` 注解在接口上声明，
+  拦截器按角色 `func_perm` 校验，越权返回 403。
+- **数据权限**：`data_scope` 为 1 全校 / 2 本学院 / 3 本人，列表查询自动追加过滤条件
+  （教师看本人教学班、学生看本班课表、学院教务员看本学院数据）。
+- **操作留痕**：方案发布、排课发布、调课审批、学分认定、授权变更等关键写操作
+  均写入 `audit_log`（操作人、角色、类型、对象、变更前后值、IP、时间），日志只追加不修改。
+
+## 九、说明
+
+1. 按“一数一源”原则，班级、教师、教室数据分别由学籍、师资、固定资产子系统维护，
+   本系统仅保存镜像表并只读引用；演示环境内置了镜像数据以保证系统可独立运行。
+2. 专业编号长度放宽至 8 位，以容纳国家特设专业代码（如 `080717T`）。
+3. 文件服务（课程大纲、导出报表）在演示环境以路径字段占位，接口形态与设计文档一致。
+4. 前端 `npm run build` 产物位于 `frontend/dist`，可交由 Nginx 托管并将 `/api` 反向代理至后端。

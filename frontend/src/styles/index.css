@@ -1,0 +1,169 @@
+:root {
+  --mis-primary: #2b5c9b;
+  --mis-primary-light: #3f7cc4;
+  --mis-bg: #f4f6fa;
+  --mis-border: #e4e9f2;
+  --mis-text: #23324a;
+  --mis-muted: #7c8ba1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  background: var(--mis-bg);
+  color: var(--mis-text);
+  font-size: 14px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.page-desc {
+  color: var(--mis-muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid var(--mis-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.panel-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.toolbar .spacer {
+  flex: 1;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.stat-card {
+  background: #fff;
+  border: 1px solid var(--mis-border);
+  border-left: 4px solid var(--mis-primary);
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+
+.stat-card .label {
+  color: var(--mis-muted);
+  font-size: 13px;
+}
+
+.stat-card .value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--mis-primary);
+  margin-top: 6px;
+  line-height: 1.2;
+}
+
+.stat-card .unit {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--mis-muted);
+  margin-left: 4px;
+}
+
+.muted {
+  color: var(--mis-muted);
+}
+
+.el-table th.el-table__cell {
+  background: #f7f9fc !important;
+  color: #46566e;
+  font-weight: 600;
+}
+
+.el-card,
+.el-dialog {
+  border-radius: 8px;
+}
+
+/* 周课表 */
+.timetable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.timetable th,
+.timetable td {
+  border: 1px solid var(--mis-border);
+  padding: 4px;
+  vertical-align: top;
+  height: 64px;
+}
+
+.timetable th {
+  background: #f7f9fc;
+  font-weight: 600;
+  color: #46566e;
+  height: 38px;
+}
+
+.timetable td.cell {
+  position: relative;
+}
+
+.tt-item {
+  background: #eaf1fb;
+  border-left: 3px solid var(--mis-primary);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.tt-item.conflict {
+  background: #fdecec;
+  border-left-color: #d9534f;
+}
+
+.tt-item b {
+  display: block;
+  font-size: 12px;
+  color: #1f3d68;
+}
+
+.tt-item span {
+  color: #5a6b82;
+}

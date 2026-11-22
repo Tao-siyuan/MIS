@@ -1,0 +1,33 @@
+# ---------- Java / Spring Boot ----------
+backend/target/
+*.class
+*.jar
+!backend/.mvn/wrapper/maven-wrapper.jar
+
+# ---------- Node / Vite ----------
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+
+# ---------- 运行日志 ----------
+*.log
+run.err
+run.log
+dev.log
+
+# ---------- IDE ----------
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# ---------- 操作系统 ----------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 临时文件 ----------
+_extract.txt
+*.tmp
+*.bak
