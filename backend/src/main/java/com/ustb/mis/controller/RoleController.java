@@ -169,12 +169,28 @@ public class RoleController {
         if (user == null) {
             throw new BizException("用户不存在");
         }
-        String password = body.getOrDefault("password", "tsy050904");
+        String password = body.get("password");
+        if (password == null || password.isBlank()) {
+            password = defaultPassword(user.getUserId());
+        }
         SysUser update = new SysUser();
         update.setUserId(id);
         update.setPassword(AuthService.hash(password));
         userMapper.updateById(update);
         auditService.record("02", "sys_user:" + id, null, Map.of("action", "resetPassword"));
         return Result.ok();
+    }
+
+    /**
+     * 默认口令规则：系统管理员固定 123456；其余账号为 USTB@ + 工号/学号后 6 位。
+     */
+    private String defaultPassword(String userId) {
+        if ("admin".equals(userId)) {
+            return "123456";
+        }
+        if (userId == null || userId.length() <= 6) {
+            return "USTB@" + userId;
+        }
+        return "USTB@" + userId.substring(userId.length() - 6);
     }
 }

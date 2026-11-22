@@ -213,9 +213,11 @@ async function toggleUser(row) {
 }
 
 async function resetPwd(row) {
-  const { value } = await ElMessageBox.prompt('请输入新密码', `重置 ${row.realName} 的密码`, {
-    inputValue: 'tsy050904'
-  })
+  const { value } = await ElMessageBox.prompt(
+    '留空则按口令规则重置：系统管理员为 123456，其余账号为 USTB@ + 工号/学号后 6 位',
+    `重置 ${row.realName} 的密码`,
+    { inputValue: '', inputPlaceholder: '留空按规则重置' }
+  )
   await api.resetPassword(row.userId, value)
   ElMessage.success('密码已重置')
 }

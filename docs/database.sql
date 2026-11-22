@@ -694,7 +694,7 @@ INSERT INTO schedule_conflict (conflict_id, tc_id, other_tc_id, conflict_type, c
 ('CF20260001','202610009','202610008','04','体育（一）面向62人，C301容量45','改用B101（120座）周四7-8节','0');
 
 INSERT INTO adjust_record (adjust_id, sched_id, adjust_type, old_value, new_value, new_room_id, new_week_day, new_start_slot, new_end_slot, reason, effect_date, approve_status, approver, approve_opinion, restore_flag, notify_status, create_time) VALUES
-('AD20260001','S20260010','1','周三 3-4节 A101','周四 9-10节 A102','A102','4',9,10,'教师出差，申请一次性调课','2026-11-26','1','jwc','同意，已通知学生','0','1','2026-11-18 10:20:00'),
+('AD20260001','S20260010','1','周三 3-4节 A101','周四 9-10节 A102','A102','4',9,10,'教师出差，申请一次性调课','2026-11-26','1','B220001','同意，已通知学生','0','1','2026-11-18 10:20:00'),
 ('AD20260002','S20260013','2','周一 1-2节 A102','周二 3-4节 A102','A102','2',3,4,'长期调整，避开学院例会','2026-11-23','0',NULL,NULL,'0','0','2026-11-20 15:40:00');
 
 INSERT INTO dual_enroll (enroll_id, stu_id, major_id, enroll_year, apply_date, score_avg, audit_status, finish_status, enroll_date, remark) VALUES
@@ -708,7 +708,7 @@ INSERT INTO study_record (rec_id, stu_id, program_type, major_id, course_id, tc_
 ('SR20260003','U202341226','1','120102','1201003','202610011','1',NULL,3.0,'02','0','冲突，顺延至下一年开课');
 
 INSERT INTO credit_apply (apply_id, stu_id, from_major, to_major, apply_date, apply_credit, college_opinion, audit_status, approver, audit_opinion, audit_date) VALUES
-('CT20260001','U202341227','080903','080901','2026-10-08',6.5,'课程内容相近，同意转换','1','jwc','同意认定，计入转入专业学分','2026-10-15'),
+('CT20260001','U202341227','080903','080901','2026-10-08',6.5,'课程内容相近，同意转换','1','B220001','同意认定，计入转入专业学分','2026-10-15'),
 ('CT20260002','U202341228','120203','120102','2026-10-12',3.0,NULL,'0',NULL,NULL,NULL);
 
 INSERT INTO credit_item (apply_id, seq_no, source_course_id, source_credit, target_course_id, target_credit, transfer_type, item_status) VALUES
@@ -736,24 +736,30 @@ INSERT INTO sys_role (role_id, role_name, data_scope, func_perm, role_status, re
 ('R05','学生','3','P12,P13,P14,P15','1','在校本科生'),
 ('R06','教室管理员/审计员','1','P12,P16','1','后勤集团、审计岗');
 
+-- 演示账号（口令摘要 = SHA-256("mis@" + 明文口令)，与 AuthService.hash 一致）
+-- 口令规则：系统管理员 admin 为 123456；
+--           职工（教务处/学院教务员/教室管理员）工号 B + 入职年份后两位 + 4 位顺序号，口令 USTB@ + 工号后 6 位；
+--           教师工号 A + 入职年份后两位 + 4 位顺序号，口令 USTB@ + 工号后 6 位；
+--           学生学号 U(本科)/M(硕士)/D(博士) + 入学年份 4 位 + 类别 1 位（4 正常录取、5 单列类、6 留学生）+ 4 位顺序号，
+--           口令 USTB@ + 学号后 6 位。
 INSERT INTO sys_user (user_id, user_name, password, real_name, role_id, college_id, major_id, class_id, teacher_id, status) VALUES
-('admin','admin','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','系统管理员','R01',NULL,NULL,NULL,NULL,'1'),
-('jwc','jwc','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','教务处管理员','R02',NULL,NULL,NULL,NULL,'1'),
-('xy09','xy09','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','计通学院教务员','R03','09',NULL,NULL,NULL,'1'),
-('xy12','xy12','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','经管学院教务员','R03','12',NULL,NULL,NULL,'1'),
-('t0901','t0901','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','李建国','R04','09',NULL,NULL,'T2026001','1'),
-('t0902','t0902','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','王敏','R04','09',NULL,NULL,'T2026002','1'),
-('U202341224','stu001','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','赵一鸣','R05','09','080901','计2601',NULL,'1'),
-('room01','room01','071577d9d23e30942dc537ee080e133d3d6ad41b3d514ccca84f076656fa3f3e','教室管理员','R06',NULL,NULL,NULL,NULL,'1');
+('admin','admin','a4078b2a5a4643dd9513962207c22d19719fde6cc62b34604fba481549b8800a','系统管理员','R01',NULL,NULL,NULL,NULL,'1'),
+('B220001','B220001','06391ab0433f0512b14fb0ac50b48091c67b630611d83bba1d8b136267465726','教务处管理员','R02',NULL,NULL,NULL,NULL,'1'),
+('B220002','B220002','ef9b38dd9303468e87cff1b56f8c34587e140276f214cd9ae52ededaa73572f4','计通学院教务员','R03','09',NULL,NULL,NULL,'1'),
+('B220003','B220003','cd96c01678f6a08cc9b753f0e0cd117a9fd898b9fe3af1cb14ce3178ff4d3c20','经管学院教务员','R03','12',NULL,NULL,NULL,'1'),
+('A230001','A230001','f29803033af45b169075669232d724651e800d5c950f6cbbfa5d94537ddb3ec5','李建国','R04','09',NULL,NULL,'T2026001','1'),
+('A230002','A230002','8d091cb74288a5952ab74361a908c63debd5f906679d8ba4f67672dfabbb39bb','王敏','R04','09',NULL,NULL,'T2026002','1'),
+('U202341224','U202341224','b11db76eb702bf9b9409f7118aa626090e25c7c53e85b320399fd1156ba3974b','赵一鸣','R05','09','080901','计2601',NULL,'1'),
+('B220004','B220004','da4be3997054b1287faed729a3caa6ea5afb9122b54228a06e91d8f65f8084c3','教室管理员','R06',NULL,NULL,NULL,NULL,'1');
 
 INSERT INTO sys_user_role (user_id, role_id) VALUES
-('admin','R01'),('jwc','R02'),('xy09','R03'),('xy12','R03'),('t0901','R04'),('t0902','R04'),('U202341224','R05'),('room01','R06');
+('admin','R01'),('B220001','R02'),('B220002','R03'),('B220003','R03'),('A230001','R04'),('A230002','R04'),('U202341224','R05'),('B220004','R06');
 
 INSERT INTO audit_log (log_id, user_id, role_id, oper_type, oper_object, before_value, after_value, oper_result, client_ip, oper_time) VALUES
-('L20260630100001','jwc','R02','05','major_program:080901-2026-1','{"plan_status":"2"}','{"plan_status":"3"}','1','10.10.1.21','2026-06-30 10:00:01'),
-('L20261114093001','jwc','R02','05','schedule_result:2026-2027-1','{"sched_status":"1"}','{"sched_status":"2"}','1','10.10.1.23','2026-11-14 09:30:01'),
-('L20261118102001','t0901','R04','01','adjust_record:AD20260001',NULL,'{"new_value":"周四 9-10节 A102"}','1','10.10.2.15','2026-11-18 10:20:00'),
-('L20261120154001','t0901','R04','01','adjust_record:AD20260002',NULL,'{"new_value":"周二 3-4节 A102"}','1','10.10.2.15','2026-11-20 15:40:00');
+('L20260630100001','B220001','R02','05','major_program:080901-2026-1','{"plan_status":"2"}','{"plan_status":"3"}','1','10.10.1.21','2026-06-30 10:00:01'),
+('L20261114093001','B220001','R02','05','schedule_result:2026-2027-1','{"sched_status":"1"}','{"sched_status":"2"}','1','10.10.1.23','2026-11-14 09:30:01'),
+('L20261118102001','A230001','R04','01','adjust_record:AD20260001',NULL,'{"new_value":"周四 9-10节 A102"}','1','10.10.2.15','2026-11-18 10:20:00'),
+('L20261120154001','A230001','R04','01','adjust_record:AD20260002',NULL,'{"new_value":"周二 3-4节 A102"}','1','10.10.2.15','2026-11-20 15:40:00');
 
 SET FOREIGN_KEY_CHECKS = 1;
 

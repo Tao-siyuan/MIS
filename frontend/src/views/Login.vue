@@ -20,7 +20,7 @@
     <div class="form-side">
       <el-card class="login-card" shadow="never">
         <h2>账号登录</h2>
-        <p class="muted">请使用统一身份认证账号登录，初始密码 tsy050904</p>
+        <p class="muted">请使用工号 / 学号登录，初始口令见下方演示账号</p>
         <el-form :model="form" :rules="rules" ref="formRef" label-position="top" @keyup.enter="submit">
           <el-form-item label="账号" prop="userName">
             <el-input v-model="form.userName" size="large" placeholder="登录名 / 工号 / 学号" :prefix-icon="User" />
@@ -40,9 +40,9 @@
           </el-button>
         </el-form>
 
-        <el-divider content-position="left"><span class="muted">演示账号（密码均为 tsy050904）</span></el-divider>
+        <el-divider content-position="left"><span class="muted">演示账号（点击自动填充账号与口令）</span></el-divider>
         <div class="accounts">
-          <el-tag v-for="a in accounts" :key="a.user" class="account" @click="fill(a.user)">
+          <el-tag v-for="a in accounts" :key="a.user" class="account" @click="fill(a)">
             {{ a.label }}
           </el-tag>
         </div>
@@ -62,22 +62,23 @@ import { setSession } from '../store/user'
 const router = useRouter()
 const formRef = ref()
 const loading = ref(false)
-const form = reactive({ userName: 'admin', password: 'tsy050904' })
+const form = reactive({ userName: 'admin', password: '123456' })
 const rules = {
   userName: [{ required: true, message: '请输入账号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 const accounts = [
-  { label: '系统管理员 admin', user: 'admin' },
-  { label: '教务处 jwc', user: 'jwc' },
-  { label: '学院教务员 xy09', user: 'xy09' },
-  { label: '教师 t0901', user: 't0901' },
-  { label: '学生 stu001', user: 'stu001' }
+  { label: '系统管理员 admin', user: 'admin', pwd: '123456' },
+  { label: '教务处管理员 B220001', user: 'B220001', pwd: 'USTB@220001' },
+  { label: '学院教务员 B220002', user: 'B220002', pwd: 'USTB@220002' },
+  { label: '教室管理员 B220004', user: 'B220004', pwd: 'USTB@220004' },
+  { label: '教师 A230001', user: 'A230001', pwd: 'USTB@230001' },
+  { label: '学生 U202341224', user: 'U202341224', pwd: 'USTB@341224' }
 ]
 
-function fill(user) {
-  form.userName = user
-  form.password = 'tsy050904'
+function fill(a) {
+  form.userName = a.user
+  form.password = a.pwd
 }
 
 async function submit() {
