@@ -63,6 +63,8 @@ export const api = {
   submitProgram: (data) => http.post('/programs/submit', data),
   reviewProgram: (data) => http.post('/programs/review', data),
   confirmCross: (data) => http.put('/programs/cross-confirm', data),
+  reviseProgram: (data) => http.post('/programs/revise', data),
+  programVersions: (params) => http.get('/programs/versions', { params }),
   pendingCross: () => http.get('/programs/pending-cross'),
   generalPlans: (params) => http.get('/general-plans', { params }),
   saveGeneralPlan: (data) => http.post('/general-plans', data),
@@ -77,6 +79,7 @@ export const api = {
   applies: (params) => http.get('/new-course-applies', { params }),
   applyCourse: (data) => http.post('/new-course-applies', data),
   auditApply: (id, data) => http.post(`/new-course-applies/${id}/audit`, data),
+  collegeAuditApply: (id, data) => http.post(`/new-course-applies/${id}/college-audit`, data),
 
   // 教学班与排课
   teachingClasses: (params) => http.get('/teaching-classes', { params }),
@@ -146,6 +149,7 @@ export const api = {
   roleStatus: (id, status) => http.put(`/roles/${id}/status`, null, { params: { status } }),
   users: (params) => http.get('/users', { params }),
   changeUserRole: (id, roleId) => http.put(`/users/${id}/role`, null, { params: { roleId } }),
+  changeUserRoles: (id, roleIds) => http.put(`/users/${id}/roles`, { roleIds }),
   changeUserStatus: (id, status) => http.put(`/users/${id}/status`, null, { params: { status } }),
   resetPassword: (id, password) => http.put(`/users/${id}/password`, { password }),
 

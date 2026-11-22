@@ -33,6 +33,7 @@ public class AuthController {
 
     @PostMapping("/logout")
     public Result<Void> logout() {
+        authService.logout();
         return Result.ok();
     }
 }

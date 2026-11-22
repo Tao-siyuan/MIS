@@ -43,7 +43,8 @@ public class ScheduleService {
     private static final String[] DAY_NAMES = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
     private static final Map<String, String> CONFLICT_TYPE_NAME = Map.of(
             "01", "教师冲突", "02", "教室冲突", "03", "班级冲突",
-            "04", "教室容量不足", "05", "教室类型不匹配", "06", "教师不可用时段");
+            "04", "教室容量不足", "05", "教室类型不匹配", "06", "教师不可用时段",
+            "07", "可用时段不足", "08", "教室不可用时段");
 
     private final TeachingClassMapper tcMapper;
     private final ScheduleResultMapper resultMapper;
@@ -213,7 +214,7 @@ public class ScheduleService {
                 }
                 if (!placed) {
                     String desc = describeFail(occ, tc, roomCandidates, periodOrder);
-                    createConflict(tc.getTcId(), null, "01", desc, "建议调整该教学班的上课时间或增开教室");
+                    createConflict(tc.getTcId(), null, "07", desc, "建议调整该教学班的上课时间或增开教室");
                     failDetail.add(tc.getTcId() + " 可用时段不足");
                     break;
                 }
@@ -336,33 +337,63 @@ public class ScheduleService {
                 Map.of("handleStatus", "0"), Map.of("handleStatus", "1"));
     }
 
-    /** 课表发布：存在未处理冲突时不允许发布（BR-05） */
+    /**
+     * 课表发布：先校验未处理冲突（BR-05），再校验每个教学班排课完整性（P0-05）。
+     * 未排满的教学班不参与发布，仅已排满的置为已发布并锁定。
+     */
     @Transactional
     public Map<String, Object> publish(String term) {
-        long pending = conflictMapper.selectCount(Wrappers.<ScheduleConflict>lambdaQuery()
-                .eq(ScheduleConflict::getHandleStatus, "0")
-                .inSql(ScheduleConflict::getTcId,
-                        "select tc_id from teaching_class where term = '" + term + "'"));
-        if (pending > 0) {
-            throw new BizException("该学期仍有 " + pending + " 条未处理冲突，不允许发布（BR-05）");
+        if (term == null || !term.matches("\\d{4}-\\d{4}-[12]")) {
+            throw new BizException("学期格式不正确，应为 YYYY-YYYY-S");
         }
         List<TeachingClass> tcs = tcMapper.selectList(Wrappers.<TeachingClass>lambdaQuery()
                 .eq(TeachingClass::getTerm, term));
-        int count = 0;
+        if (tcs.isEmpty()) {
+            throw new BizException("该学期没有教学班，无需发布");
+        }
+        List<String> tcIds = tcs.stream().map(TeachingClass::getTcId).toList();
+        long pending = conflictMapper.selectCount(Wrappers.<ScheduleConflict>lambdaQuery()
+                .eq(ScheduleConflict::getHandleStatus, "0")
+                .in(ScheduleConflict::getTcId, tcIds));
+        if (pending > 0) {
+            throw new BizException("该学期仍有 " + pending + " 条未处理冲突，不允许发布（BR-05）");
+        }
+        List<String> incomplete = new ArrayList<>();
+        List<TeachingClass> ready = new ArrayList<>();
         for (TeachingClass tc : tcs) {
+            if (Arrays.asList("2", "0", "4").contains(tc.getTcStatus())) {
+                continue;
+            }
+            long segments = resultMapper.selectCount(Wrappers.<ScheduleResult>lambdaQuery()
+                    .eq(ScheduleResult::getTcId, tc.getTcId()));
+            int need = weeklySessions(tc);
+            if (segments < need) {
+                incomplete.add(tc.getTcId() + "（已排 " + segments + " 段，需 " + need + " 段）");
+            } else {
+                ready.add(tc);
+            }
+        }
+        if (!incomplete.isEmpty()) {
+            throw new BizException("以下教学班排课未完成，不能发布：" + String.join("；", incomplete));
+        }
+        int count = 0;
+        for (TeachingClass tc : ready) {
             count += resultMapper.update(null, Wrappers.<ScheduleResult>lambdaUpdate()
                     .eq(ScheduleResult::getTcId, tc.getTcId())
                     .set(ScheduleResult::getSchedStatus, "2")
                     .set(ScheduleResult::getLockFlag, "1"));
         }
-        tcMapper.update(null, Wrappers.<TeachingClass>lambdaUpdate()
-                .eq(TeachingClass::getTerm, term)
-                .in(TeachingClass::getTcStatus, Arrays.asList("3", "1"))
-                .set(TeachingClass::getTcStatus, "4"));
+        List<String> readyIds = ready.stream().map(TeachingClass::getTcId).toList();
+        if (!readyIds.isEmpty()) {
+            tcMapper.update(null, Wrappers.<TeachingClass>lambdaUpdate()
+                    .in(TeachingClass::getTcId, readyIds)
+                    .set(TeachingClass::getTcStatus, "4"));
+        }
         auditService.record("05", "schedule_result:publish:" + term,
                 Map.of("schedStatus", "1"), Map.of("schedStatus", "2", "count", count));
         Map<String, Object> result = new HashMap<>();
         result.put("count", count);
+        result.put("tcCount", readyIds.size());
         return result;
     }
 
@@ -400,6 +431,9 @@ public class ScheduleService {
         }
         if (!roomTypeMatch(tc.getTeachType(), room.getRoomType())) {
             messages.add("教室类型与教学形式不匹配");
+        }
+        if (!roomTimeAvailable(room, day, start)) {
+            messages.add("教室在该时段不可用（" + room.getAvailableTime() + "）");
         }
         if (unavailable(tc, day, start)) {
             messages.add("占用了教师不可用时间（" + tc.getUnavailableTime() + "）");
@@ -499,13 +533,73 @@ public class ScheduleService {
         return order;
     }
 
+    /**
+     * 候选上课日：默认周一至周五；若教师填写了具体星期（未细分上午/下午/晚上），该日整体排除（P2-03）。
+     */
     private List<Integer> buildDayOrder(TeachingClass tc) {
         List<Integer> days = new ArrayList<>(Arrays.asList(1, 2, 3, 4, 5));
         String unavailable = tc.getUnavailableTime();
-        if (unavailable != null && unavailable.contains("下午")) {
+        if (unavailable == null || unavailable.isBlank()) {
             return days;
         }
+        boolean wholeDay = !unavailable.contains("上午") && !unavailable.contains("下午")
+                && !unavailable.contains("晚上");
+        if (!wholeDay) {
+            return days;
+        }
+        for (int day = 1; day <= 7 && day < DAY_NAMES.length; day++) {
+            if (unavailable.contains(DAY_NAMES[day])) {
+                days.remove(Integer.valueOf(day));
+            }
+        }
         return days;
+    }
+
+    /** 教室可用时间校验：支持“周一至周五 1-12 节”“周一至周日 1-12 节”等写法 */
+    private boolean roomTimeAvailable(Classroom room, int day, int start) {
+        String avail = room.getAvailableTime();
+        if (avail == null || avail.isBlank()) {
+            return true;
+        }
+        java.util.regex.Matcher range = java.util.regex.Pattern
+                .compile("周([一二三四五六日])至周([一二三四五六日])").matcher(avail);
+        if (range.find()) {
+            int from = dayIndex(range.group(1));
+            int to = dayIndex(range.group(2));
+            if (day < from || day > to) {
+                return false;
+            }
+        } else if (avail.contains("周")) {
+            boolean matched = false;
+            for (int d = 1; d < DAY_NAMES.length; d++) {
+                if (avail.contains(DAY_NAMES[d]) && d == day) {
+                    matched = true;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
+        }
+        java.util.regex.Matcher slot = java.util.regex.Pattern
+                .compile("(\\d+)\\s*-\\s*(\\d+)\\s*节").matcher(avail);
+        if (slot.find()) {
+            int from = Integer.parseInt(slot.group(1));
+            int to = Integer.parseInt(slot.group(2));
+            return start >= from && start <= to;
+        }
+        return true;
+    }
+
+    private int dayIndex(String dayChar) {
+        return switch (dayChar) {
+            case "一" -> 1;
+            case "二" -> 2;
+            case "三" -> 3;
+            case "四" -> 4;
+            case "五" -> 5;
+            case "六" -> 6;
+            default -> 7;
+        };
     }
 
     private List<Classroom> filterRooms(List<Classroom> rooms, String teachType, Integer studentNum) {
@@ -594,6 +688,9 @@ public class ScheduleService {
             if (classOverlap(tc.getClassIds(), o.classIds)) {
                 conflicts.add("班级冲突");
             }
+        }
+        if (!roomTimeAvailable(room, day, start)) {
+            conflicts.add("教室不可用时段");
         }
         return conflicts;
     }

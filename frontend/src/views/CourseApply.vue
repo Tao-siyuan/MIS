@@ -18,7 +18,7 @@
           <el-option label="已驳回" value="2" />
         </el-select>
         <span class="spacer" />
-        <el-button type="primary" @click="openApply">课程申报</el-button>
+        <el-button v-if="hasPerm('P06')" type="primary" @click="openApply">课程申报</el-button>
       </div>
 
       <el-table :data="rows" border size="small">
@@ -34,18 +34,26 @@
         <el-table-column prop="applyTime" label="申报时间" width="160" />
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
-            <el-tag size="small" :type="['info', 'success', 'danger'][Number(row.auditStatus)]">
-              {{ { 0: '待审核', 1: '已批准', 2: '已驳回' }[row.auditStatus] }}
+            <el-tag size="small" :type="{ 0: 'warning', 3: 'primary', 1: 'success', 2: 'danger' }[row.auditStatus]">
+              {{ { 0: '学院待审', 3: '教务处待审', 1: '已批准', 2: '已驳回' }[row.auditStatus] }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="auditOpinion" label="审核意见" min-width="160" show-overflow-tooltip />
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="row.auditStatus === '0' && hasPerm('P07')" link type="primary" size="small" @click="openAudit(row)">
-              审批
-            </el-button>
-            <span v-else-if="row.courseId" class="muted">课程号 {{ row.courseId }}</span>
+            <template v-if="row.auditStatus === '0' && hasPerm('P21')">
+              <el-button link type="success" size="small" @click="collegeAudit(row, '1')">初审通过</el-button>
+              <el-button link type="danger" size="small" @click="collegeAudit(row, '0')">初审驳回</el-button>
+            </template>
+            <el-button
+              v-if="row.auditStatus === '3' && hasPerm('P07')"
+              link
+              type="primary"
+              size="small"
+              @click="openAudit(row)"
+            >终审</el-button>
+            <span v-if="row.courseId" class="muted">课程号 {{ row.courseId }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -111,7 +119,7 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { hasPerm } from '../store/user'
 
@@ -165,6 +173,18 @@ async function doAudit() {
   await api.auditApply(current.value.applyId, { ...auditForm })
   ElMessage.success('审批完成')
   auditDialog.value = false
+  await load()
+}
+
+/** 学院初审：填写学院意见后转教务处终审（P1-12） */
+async function collegeAudit(row, pass) {
+  const { value } = await ElMessageBox.prompt(
+    pass === '1' ? '请填写学院初审意见（通过后转教务处审定）' : '请填写驳回理由',
+    `${pass === '1' ? '初审通过' : '初审驳回'}：${row.courseName}`,
+    { inputValue: pass === '1' ? '课程内容符合专业培养目标，同意上报教务处' : '' }
+  )
+  await api.collegeAuditApply(row.applyId, { pass, opinion: value })
+  ElMessage.success('学院初审已提交')
   await load()
 }
 

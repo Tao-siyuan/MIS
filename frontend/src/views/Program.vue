@@ -14,7 +14,7 @@
         <el-select v-model="query.planStatus" placeholder="全部状态" clearable style="width: 140px" @change="load">
           <el-option label="编制中" value="0" />
           <el-option label="院系初审" value="1" />
-          <el-option label="校级审议" value="2" />
+          <el-option label="教务处审核" value="2" />
           <el-option label="已发布" value="3" />
         </el-select>
         <el-input v-model="query.keyword" placeholder="专业名称" clearable style="width: 180px" @change="load" />
@@ -50,7 +50,7 @@
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">课程明细</el-button>
             <el-button
-              v-if="hasPerm('P02') && row.planStatus !== '3'"
+              v-if="hasPerm('P02') && row.planStatus === '0'"
               link
               type="primary"
               size="small"
@@ -64,12 +64,26 @@
               @click="submit(row)"
             >提交评审</el-button>
             <el-button
-              v-if="hasPerm('P03') && row.planStatus !== '3'"
+              v-if="hasPerm('P02') && row.planStatus !== '0'"
+              link
+              type="warning"
+              size="small"
+              @click="revise(row)"
+            >编制新版本</el-button>
+            <el-button
+              v-if="hasPerm('P02') || hasPerm('P03')"
+              link
+              type="info"
+              size="small"
+              @click="openVersions(row)"
+            >版本历史</el-button>
+            <el-button
+              v-if="hasPerm('P03') && ['1', '2'].includes(row.planStatus)"
               link
               type="warning"
               size="small"
               @click="openReview(row)"
-            >审核</el-button>
+            >{{ row.planStatus === '1' ? '院系初审' : '发布' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -120,8 +134,21 @@
         <span class="muted">总学分要求 {{ current?.totalCredit }}，已列 {{ detailRows.length }} 门</span>
         <span class="spacer" />
         <el-button size="small" @click="checkCredit">学分核对</el-button>
-        <el-button v-if="hasPerm('P02')" size="small" type="primary" @click="openAddCourse">新增课程</el-button>
+        <el-button
+          v-if="hasPerm('P02') && current?.planStatus === '0'"
+          size="small"
+          type="primary"
+          @click="openAddCourse"
+        >新增课程</el-button>
       </div>
+      <el-alert
+        v-if="current?.planStatus !== '0'"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 10px"
+        :title="`方案当前为「${statusName(current?.planStatus)}」，课程明细已锁定只读；如需修订请使用“编制新版本”。`"
+      />
       <el-table :data="detailRows" border size="small" max-height="600">
         <el-table-column prop="openSemester" label="学期" width="65" />
         <el-table-column prop="courseId" label="课程号" width="100" />
@@ -142,14 +169,14 @@
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.crossStatus === '0' && hasPerm('P03')"
+              v-if="row.crossStatus === '0' && (hasPerm('P22') || hasPerm('P03'))"
               link
               type="success"
               size="small"
               @click="confirmCross(row)"
             >确认承接</el-button>
             <el-button
-              v-if="hasPerm('P02') && current?.planStatus !== '3'"
+              v-if="hasPerm('P02') && current?.planStatus === '0'"
               link
               type="danger"
               size="small"
@@ -246,7 +273,42 @@
             <el-table-column prop="credit" label="学分合计" />
           </el-table>
         </div>
+        <el-alert
+          v-if="credit.issues?.length"
+          type="error"
+          :closable="false"
+          show-icon
+          style="margin-top: 12px"
+          title="未达标项"
+        >
+          <div v-for="(item, idx) in credit.issues" :key="idx">· {{ item }}</div>
+        </el-alert>
+        <el-alert
+          v-if="credit.warnings?.length"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-top: 8px"
+          title="提示"
+        >
+          <div v-for="(item, idx) in credit.warnings" :key="idx">· {{ item }}</div>
+        </el-alert>
       </div>
+    </el-dialog>
+
+    <el-dialog v-model="versionsDialog" :title="`版本历史 · ${versionTitle}`" width="720px">
+      <el-table :data="versions" border size="small" max-height="420">
+        <el-table-column prop="version" label="版本" width="90" />
+        <el-table-column prop="planStatus" label="归档状态" width="110">
+          <template #default="{ row }">{{ statusName(row.planStatus) }}</template>
+        </el-table-column>
+        <el-table-column prop="totalCredit" label="总学分" width="90" />
+        <el-table-column prop="courseCount" label="课程门数" width="90" />
+        <el-table-column prop="publishDate" label="发布时间" width="110" />
+        <el-table-column prop="reviewOpinion" label="审核意见" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="archiveTime" label="归档时间" min-width="160" />
+      </el-table>
+      <p class="muted" style="margin-top: 8px">历史版本只读留档，当前执行版本始终为方案主记录。</p>
     </el-dialog>
   </div>
 </template>
@@ -274,6 +336,9 @@ const reviewRow = ref(null)
 const current = ref(null)
 const detailRows = ref([])
 const credit = ref(null)
+const versionsDialog = ref(false)
+const versions = ref([])
+const versionTitle = ref('')
 
 const creditRows = computed(() => {
   if (!credit.value?.byType) return []
@@ -281,7 +346,7 @@ const creditRows = computed(() => {
   return Object.entries(credit.value.byType).map(([k, v]) => ({ type: names[k] || k, credit: v }))
 })
 
-const statusName = (s) => ({ 0: '编制中', 1: '院系初审', 2: '校级审议', 3: '已发布' }[s] || '-')
+const statusName = (s) => ({ 0: '编制中', 1: '院系初审', 2: '教务处审核', 3: '已发布' }[s] || '-')
 const statusType = (s) => ({ 0: 'info', 1: 'warning', 2: 'warning', 3: 'success' }[s] || 'info')
 const courseTypeName = (t) =>
   ({ 11: '校级必修', 12: '院级必修', 13: '专业必修', 14: '专业选修', 15: '通识', 16: '实践' }[t] || t)
@@ -388,6 +453,28 @@ async function checkCredit() {
     programType: current.value.programType
   })
   creditDialog.value = true
+}
+
+/** 编制新版本：归档当前版本，版本号 +1 并回到编制中（P0-06） */
+async function revise(row) {
+  await ElMessageBox.confirm(
+    `将对「${row.majorName} ${row.grade}级 ${row.programType === '2' ? '双学位' : '主修'}」当前版本 ${row.version} 归档，并新建下一版本继续编制，确认？`,
+    '编制新版本',
+    { type: 'warning' }
+  )
+  await api.reviseProgram({ majorId: row.majorId, grade: row.grade, programType: row.programType })
+  ElMessage.success('已生成新版本，可在编制中状态继续编辑')
+  await load()
+}
+
+async function openVersions(row) {
+  versions.value = await api.programVersions({
+    majorId: row.majorId,
+    grade: row.grade,
+    programType: row.programType
+  })
+  versionTitle.value = `${row.majorName} ${row.grade}级 ${row.programType === '2' ? '双学位' : '主修'}`
+  versionsDialog.value = true
 }
 
 async function submit(row) {

@@ -1,12 +1,14 @@
 package com.ustb.mis.controller;
 
+import com.ustb.mis.common.BizException;
 import com.ustb.mis.common.Result;
+import com.ustb.mis.entity.MajorProgramVersion;
+import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.RequirePerm;
 import com.ustb.mis.security.UserContext;
 import com.ustb.mis.service.ProgramService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,7 +33,7 @@ public class ProgramController {
     }
 
     @GetMapping("/programs")
-    @RequirePerm({"P02", "P03", "P08", "P14"})
+    @RequirePerm({"P02", "P03", "P08", "P14", "P15", "P19"})
     public Result<List<Map<String, Object>>> list(@RequestParam(required = false) String majorId,
                                                   @RequestParam(required = false) String planStatus,
                                                   @RequestParam(required = false) String keyword) {
@@ -45,6 +47,7 @@ public class ProgramController {
         return Result.ok();
     }
 
+    /** 编制新版本（P0-06） */
     @PostMapping("/programs/revise")
     @RequirePerm("P02")
     public Result<Void> revise(@RequestBody Map<String, Object> body) {
@@ -52,8 +55,17 @@ public class ProgramController {
         return Result.ok();
     }
 
+    /** 版本历史 */
+    @GetMapping("/programs/versions")
+    @RequirePerm({"P02", "P03"})
+    public Result<List<MajorProgramVersion>> versions(@RequestParam String majorId,
+                                                      @RequestParam String grade,
+                                                      @RequestParam String programType) {
+        return Result.ok(programService.versions(majorId, grade, programType));
+    }
+
     @GetMapping("/programs/courses")
-    @RequirePerm({"P02", "P03", "P08"})
+    @RequirePerm({"P02", "P03", "P08", "P19"})
     public Result<List<Map<String, Object>>> courses(@RequestParam String majorId,
                                                      @RequestParam String grade,
                                                      @RequestParam String programType) {
@@ -91,15 +103,23 @@ public class ProgramController {
     }
 
     @PostMapping("/programs/review")
-    @RequirePerm("P03")
+    @RequirePerm({"P02", "P03"})
     public Result<Void> review(@RequestBody Map<String, Object> body) {
+        LoginUser user = UserContext.require();
+        String status = str(body.get("status"));
+        if ("3".equals(status) && !user.hasPerm("P03")) {
+            throw new BizException(403, "仅教务处可发布培养方案");
+        }
+        if ("2".equals(status) && !user.hasPerm("P02") && !user.hasPerm("P03")) {
+            throw new BizException(403, "无方案审核权限");
+        }
         programService.review(str(body.get("majorId")), str(body.get("grade")), str(body.get("programType")),
-                str(body.get("status")), str(body.get("opinion")));
+                status, str(body.get("opinion")));
         return Result.ok();
     }
 
     @PutMapping("/programs/cross-confirm")
-    @RequirePerm({"P03", "P02"})
+    @RequirePerm({"P22", "P03"})
     public Result<Void> crossConfirm(@RequestBody Map<String, Object> body) {
         programService.confirmCross(str(body.get("majorId")), str(body.get("grade")),
                 str(body.get("programType")), str(body.get("courseId")), str(body.get("status")));
@@ -107,7 +127,7 @@ public class ProgramController {
     }
 
     @GetMapping("/programs/pending-cross")
-    @RequirePerm({"P02", "P03"})
+    @RequirePerm({"P22", "P03"})
     public Result<List<Map<String, Object>>> pendingCross() {
         String collegeId = "2".equals(UserContext.require().getDataScope())
                 ? UserContext.require().getCollegeId() : null;
@@ -117,7 +137,7 @@ public class ProgramController {
     // ---------------- 通识课程计划 ----------------
 
     @GetMapping("/general-plans")
-    @RequirePerm({"P04", "P02", "P03"})
+    @RequirePerm({"P04", "P02", "P03", "P23"})
     public Result<List<Map<String, Object>>> generalPlans(@RequestParam(required = false) String schoolYear) {
         return Result.ok(programService.generalPlans(schoolYear));
     }
@@ -130,7 +150,7 @@ public class ProgramController {
     }
 
     @PutMapping("/general-plans/confirm")
-    @RequirePerm({"P04", "P02"})
+    @RequirePerm({"P23", "P04"})
     public Result<Void> confirmGeneralPlan(@RequestBody Map<String, Object> body) {
         programService.confirmGeneralPlan(str(body.get("schoolYear")), str(body.get("courseId")),
                 str(body.get("status")));
@@ -139,9 +159,9 @@ public class ProgramController {
 
     @PutMapping("/general-plans/publish")
     @RequirePerm("P04")
-    public Result<Void> publishGeneralPlan(@RequestBody Map<String, Object> body) {
-        programService.publishGeneralPlan(str(body.get("schoolYear")), str(body.get("courseId")));
-        return Result.ok();
+    public Result<Map<String, Object>> publishGeneralPlan(@RequestBody Map<String, Object> body) {
+        return Result.ok(programService.publishGeneralPlan(str(body.get("schoolYear")),
+                str(body.get("courseId"))));
     }
 
     private String str(Object o) {

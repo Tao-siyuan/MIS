@@ -111,6 +111,26 @@ body {
   font-weight: 600;
 }
 
+/* 宽表：内容超宽时整体横向滚动，避免列被压缩成两行（P2-01） */
+.el-table {
+  width: 100%;
+}
+
+.el-table .el-table__body-wrapper .el-scrollbar__wrap {
+  overflow-x: auto;
+}
+
+.el-table .cell {
+  word-break: normal;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.el-table .el-table__header-wrapper .cell {
+  white-space: nowrap;
+}
+
 .el-card,
 .el-dialog {
   border-radius: 8px;

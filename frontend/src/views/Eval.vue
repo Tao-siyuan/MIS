@@ -8,7 +8,7 @@
 
     <div class="panel">
       <el-tabs v-model="tab">
-        <el-tab-pane label="评教方案" name="plan">
+        <el-tab-pane v-if="canManage" label="评教方案" name="plan">
           <div class="toolbar">
             <el-button type="primary" size="small" @click="openPlan">新增方案</el-button>
             <span class="spacer" />
@@ -36,7 +36,15 @@
                 <el-button v-if="row.planStatus === '0'" link type="primary" size="small" @click="publishPlan(row)">
                   发布方案
                 </el-button>
-                <el-button v-if="row.planStatus === '1'" link type="warning" size="small" @click="finishPlan(row)">
+                <el-button
+                  v-if="row.planStatus === '1'"
+                  link
+                  type="warning"
+                  size="small"
+                  :disabled="!isPastClose(row)"
+                  :title="isPastClose(row) ? '' : '未到结束日期，暂不能结束并汇总'"
+                  @click="finishPlan(row)"
+                >
                   结束并汇总
                 </el-button>
                 <el-button link type="primary" size="small" @click="viewStats(row)">统计</el-button>
@@ -230,8 +238,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
+import { userStore } from '../store/user'
 
-const tab = ref('plan')
+const user = userStore()
+/** 评教方案管理仅授予 P18（教务处），学生/教师默认进入各自页签（P0-02、P2-11） */
+const canManage = computed(() => user.hasPerm('P18'))
+const isTeacher = computed(() => !!user.user?.teacherId)
+const tab = ref(canManage.value ? 'plan' : isTeacher.value ? 'stats' : 'task')
 const plans = ref([])
 const tasks = ref([])
 const stats = ref(null)
@@ -304,6 +317,14 @@ async function savePlan() {
   ElMessage.success('方案已保存')
   planDialog.value = false
   await loadPlans()
+}
+
+/** 未到结束日期不允许提前结束汇总（P2-08） */
+function isPastClose(row) {
+  if (!row.closeDate) return true
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  return String(row.closeDate) <= todayStr
 }
 
 async function publishPlan(row) {

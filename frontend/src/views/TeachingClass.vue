@@ -22,8 +22,8 @@
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
         <span class="spacer" />
-        <el-button @click="openBatch">批量生成</el-button>
-        <el-button type="primary" @click="openEdit()">新增教学班</el-button>
+        <el-button v-if="canMaintain" @click="openBatch">批量生成</el-button>
+        <el-button v-if="canMaintain" type="primary" @click="openEdit()">新增教学班</el-button>
       </div>
 
       <el-table :data="rows" border size="small">
@@ -54,20 +54,20 @@
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button
-              v-if="row.tcStatus === '0'"
+              v-if="canMaintain && row.tcStatus === '0'"
               link
               type="success"
               size="small"
               @click="changeStatus(row, '1')"
             >确认开课</el-button>
             <el-button
-              v-if="['0', '1', '3'].includes(row.tcStatus)"
+              v-if="canMaintain && ['0', '1', '3'].includes(row.tcStatus)"
               link
               type="warning"
               size="small"
               @click="cancel(row)"
             >停开</el-button>
-            <el-button v-if="row.schedCount === 0" link type="danger" size="small" @click="remove(row)">删除</el-button>
+            <el-button v-if="canMaintain && row.schedCount === 0" link type="danger" size="small" @click="remove(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -108,7 +108,15 @@
     </el-dialog>
 
     <el-dialog v-model="editDialog" :title="form.isNew ? '新增教学班' : '编辑教学班'" width="580px">
-      <el-form :model="form" label-width="100px">
+      <el-form :model="form" label-width="100px" :disabled="!canMaintain">
+        <el-alert
+          v-if="!canMaintain"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px"
+          title="教师仅可维护本人教学班的偏好节次与不可用时间，其余字段由教务处/学院教务员维护。"
+        />
         <el-form-item label="学期" required>
           <el-input v-model="form.term" :disabled="!form.isNew" />
         </el-form-item>
@@ -179,12 +187,12 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="偏好节次">
-              <el-input v-model="form.preferSlot" placeholder="如 1-2 节" />
+              <el-input v-model="form.preferSlot" :disabled="false" placeholder="如 1-2 节" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="不可用时间">
-              <el-input v-model="form.unavailableTime" placeholder="如 周三下午" />
+              <el-input v-model="form.unavailableTime" :disabled="false" placeholder="如 周三下午" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -201,7 +209,11 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
+import { userStore } from '../store/user'
 
+const user = userStore()
+/** 教学班维护（批量生成/新增/停开/删除）仅授予 P19；教师只可调整本人教学班的偏好与不可用时间（P0-03） */
+const canMaintain = computed(() => user.hasPerm('P19'))
 const rows = ref([])
 const terms = ref([])
 const majors = ref([])

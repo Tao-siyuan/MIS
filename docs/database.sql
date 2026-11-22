@@ -99,6 +99,22 @@ CREATE TABLE major_program (
     CONSTRAINT fk_program_major FOREIGN KEY (major_id) REFERENCES major (major_id)
 ) ENGINE=InnoDB COMMENT='专业培养方案表（含双学位）';
 
+CREATE TABLE major_program_version (
+    major_id       VARCHAR(8)   NOT NULL COMMENT '专业编号',
+    grade          VARCHAR(4)   NOT NULL COMMENT '适用年级',
+    program_type   VARCHAR(1)   NOT NULL COMMENT '1主修/2双学位',
+    version        VARCHAR(10)  NOT NULL COMMENT '版本号',
+    plan_status    VARCHAR(1)   NOT NULL COMMENT '归档时的方案状态',
+    total_credit   DECIMAL(5,1)          COMMENT '毕业总学分',
+    goal_desc      VARCHAR(500)          COMMENT '培养目标',
+    dual_quota     INT                   COMMENT '双学位名额',
+    review_opinion VARCHAR(200)          COMMENT '审核意见',
+    publish_date   DATE                  COMMENT '发布时间',
+    course_count   INT                   COMMENT '归档时课程门数',
+    archive_time   DATETIME     NOT NULL COMMENT '归档时间',
+    PRIMARY KEY (major_id, grade, program_type, version)
+) ENGINE=InnoDB COMMENT='培养方案历史版本快照（只读留档）';
+
 CREATE TABLE program_course (
     major_id      VARCHAR(8)   NOT NULL COMMENT '专业编号',
     grade         VARCHAR(4)   NOT NULL COMMENT '适用年级',
@@ -145,7 +161,7 @@ CREATE TABLE new_course_apply (
     credit         DECIMAL(3,1) NOT NULL COMMENT '拟定学分',
     hours          INT          NOT NULL DEFAULT 32 COMMENT '拟定学时',
     college_opinion VARCHAR(100)        COMMENT '学院审核意见',
-    audit_status   VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0待审核/1批准/2驳回',
+    audit_status   VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0学院待审/3教务处待审/1批准/2驳回',
     course_id      VARCHAR(8)           COMMENT '生成课程号',
     audit_opinion  VARCHAR(200)         COMMENT '审核意见',
     apply_time     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -282,7 +298,7 @@ CREATE TABLE dual_enroll (
     apply_date    DATE        NOT NULL COMMENT '报名日期',
     score_avg     DECIMAL(4,1)         COMMENT '主修平均分',
     audit_status  VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0待审核/1已录取/2未录取',
-    finish_status VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0修读中/1已结业/2已退修',
+    finish_status VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0未开始/1修读中/2已退修/3已结业',
     enroll_date   DATE                 COMMENT '录取日期',
     remark        VARCHAR(100)         COMMENT '备注',
     PRIMARY KEY (enroll_id),
@@ -421,7 +437,7 @@ CREATE TABLE audit_log (
     log_id       VARCHAR(20) NOT NULL COMMENT '日志编号 L+时间戳',
     user_id      VARCHAR(20) NOT NULL COMMENT '操作人',
     role_id      VARCHAR(4)           COMMENT '操作角色',
-    oper_type    VARCHAR(2)  NOT NULL COMMENT '01新增/02修改/03删除/04审批/05发布/06导出',
+    oper_type    VARCHAR(2)  NOT NULL COMMENT '01新增/02修改/03删除/04审批/05发布/06导出/07登录/08登出',
     oper_object  VARCHAR(60)          COMMENT '操作对象 表名:主键',
     before_value VARCHAR(300)         COMMENT '变更前值（JSON）',
     after_value  VARCHAR(300)         COMMENT '变更后值（JSON）',
@@ -579,10 +595,10 @@ INSERT INTO teacher (teacher_id, teacher_name, college_id, title, teacher_status
 
 -- 培养方案：计算机科学与技术 2026 级主修（已发布）
 INSERT INTO major_program (major_id, grade, program_type, total_credit, goal_desc, version, plan_status, dual_quota, review_opinion, publish_date) VALUES
-('080901','2026','1',165.0,'培养具备扎实计算机理论基础、较强工程实践能力与创新意识，能够在信息技术领域从事研发与管理工作的高级工程技术人才。','V3.0','3',NULL,'校教学委员会审议通过','2026-06-30'),
-('120102','2026','1',160.0,'培养掌握信息系统分析与设计方法，能够在企事业单位从事信息化建设与管理工作的复合型管理人才。','V2.0','3',NULL,'校教学委员会审议通过','2026-06-28'),
-('080901','2026','2',50.0,'面向学有余力的本科生开展计算机科学与技术双学位培养，强化系统能力与工程素养。','V1.0','3',30,'校教学委员会审议通过','2026-06-30'),
-('080717T','2026','1',165.0,'培养掌握人工智能基础理论与关键技术，能够从事智能系统研发的拔尖创新人才。','V1.0','1',NULL,'院教学指导分委员会初审通过',NULL);
+('080901','2026','1',100.0,'培养具备扎实计算机理论基础、较强工程实践能力与创新意识，能够在信息技术领域从事研发与管理工作的高级工程技术人才。','V3.0','3',NULL,'校教学委员会审议通过','2026-06-30'),
+('120102','2026','1',100.0,'培养掌握信息系统分析与设计方法，能够在企事业单位从事信息化建设与管理工作的复合型管理人才。','V2.0','0',NULL,NULL,NULL),
+('080901','2026','2',40.5,'面向学有余力的本科生开展计算机科学与技术双学位培养，强化系统能力与工程素养。','V1.0','3',30,'校教学委员会审议通过','2026-06-30'),
+('080717T','2026','1',100.0,'培养掌握人工智能基础理论与关键技术，能够从事智能系统研发的拔尖创新人才。','V1.0','0',NULL,NULL,NULL);
 
 INSERT INTO program_course (major_id, grade, program_type, course_id, course_type, credit, hours, open_semester, pre_course_id, cross_status) VALUES
 ('080901','2026','1','0901002','13',4.0,64,'1',NULL,'2'),
@@ -622,10 +638,30 @@ INSERT INTO program_course (major_id, grade, program_type, course_id, course_typ
 ('120102','2026','1','1201005','14',2.5,40,'5','1201003','2'),
 ('120102','2026','1','1201006','14',2.0,32,'6',NULL,'2'),
 ('120102','2026','1','1201007','14',2.0,32,'5','1201001','2'),
+('080901','2026','1','0801001','14',3.0,48,'7','1001003','1'),
+('080901','2026','1','0801002','14',2.5,40,'7','0801001','1'),
+('080901','2026','1','1301001','14',2.0,32,'8',NULL,'1'),
+('080901','2026','1','1701002','15',1.0,16,'2',NULL,'1'),
+('080901','2026','1','1701003','15',2.0,32,'4',NULL,'1'),
+('080901','2026','1','1701004','15',2.0,32,'6',NULL,'1'),
+('080901','2026','1','0501001','13',3.0,48,'2',NULL,'1'),
+('080901','2026','1','0701001','13',4.0,64,'4','1001001','1'),
+('080901','2026','2','0901002','13',4.0,64,'1',NULL,'2'),
 ('080901','2026','2','0901001','13',4.0,64,'3','0901002','2'),
+('080901','2026','2','0901003','13',4.0,64,'3','0901002','2'),
+('080901','2026','2','0901004','13',4.0,64,'4','0901003','2'),
+('080901','2026','2','0901005','13',3.0,48,'5','0901004','2'),
 ('080901','2026','2','0901006','13',3.5,56,'4','0901001','2'),
 ('080901','2026','2','0901007','13',3.0,48,'5','0901001','2'),
-('080901','2026','2','0901008','14',2.0,32,'6',NULL,'2');
+('080901','2026','2','0901008','14',2.0,32,'6',NULL,'2'),
+('080901','2026','2','0801001','14',3.0,48,'6',NULL,'2'),
+('080901','2026','2','0901011','16',2.0,32,'6',NULL,'2'),
+('080901','2026','2','0901012','16',8.0,128,'8',NULL,'2'),
+('080717T','2026','1','1001001','11',6.0,96,'1',NULL,'1'),
+('080717T','2026','1','1501001','11',3.0,48,'1',NULL,'1'),
+('080717T','2026','1','1001003','11',3.0,48,'2','1001001','0'),
+('080717T','2026','1','0801001','14',3.0,48,'5',NULL,'2'),
+('080717T','2026','1','0801002','14',2.5,40,'6','0801001','2');
 
 INSERT INTO general_plan (school_year, course_id, plan_category, suggest_hours, undertake_college, teacher_id, confirm_status, plan_status) VALUES
 ('2026-2027','1701001','04',32,'17','T2026014','1','2'),
@@ -634,8 +670,8 @@ INSERT INTO general_plan (school_year, course_id, plan_category, suggest_hours, 
 ('2026-2027','1701004','01',32,'17','T2026014','0','1');
 
 INSERT INTO new_course_apply (apply_id, apply_user, course_name, course_type, apply_reason, credit, hours, college_opinion, audit_status, course_id, audit_opinion, apply_time) VALUES
-('NC20260001','T2026003','智能硬件导论','14','面向人工智能方向的新设课程，衔接嵌入式与智能系统内容。',2.0,32,'同意申报','0',NULL,NULL,'2026-11-10 09:20:00'),
-('NC20260002','T2026011','商业数据分析实务','14','补充信管专业商务智能方向的实践类课程。',2.5,40,'同意申报','0',NULL,NULL,'2026-11-12 14:05:00'),
+('NC20260001','T2026003','智能硬件导论','14','面向人工智能方向的新设课程，衔接嵌入式与智能系统内容。',2.0,32,'课程内容与专业培养目标一致，同意上报教务处','3',NULL,NULL,'2026-11-10 09:20:00'),
+('NC20260002','T2026011','商业数据分析实务','14','补充信管专业商务智能方向的实践类课程。',2.5,40,NULL,'0',NULL,NULL,'2026-11-12 14:05:00'),
 ('NC20250009','T2026004','云原生技术基础','14','面向计算机专业高年级开设的工程实践课程。',2.0,32,'同意申报','1','0901013','内容与学时匹配，同意入库','2025-05-06 10:00:00');
 
 INSERT INTO teaching_class (tc_id, term, course_id, teacher_id, class_ids, student_num, capacity, tc_type, teach_type, hours, week_count, prefer_slot, unavailable_time, tc_status, source, actual_num, open_lower) VALUES
@@ -650,8 +686,8 @@ INSERT INTO teaching_class (tc_id, term, course_id, teacher_id, class_ids, stude
 ('202610009','2026-2027-1','1801001','T2026009','计2601,计2602',62,60,'1','1',32,16,'7-8 节',NULL,'3',1,62,10),
 ('202610010','2026-2027-1','1201001','T2026010','信管2601',35,60,'1','1',48,16,'1-2 节',NULL,'3',1,35,10),
 ('202610011','2026-2027-1','1201003','T2026011','信管2601,信管2602',68,90,'1','1',48,16,'3-4 节',NULL,'0',1,NULL,10),
-('202610012','2026-2027-1','0901008','T2026013','智能2601',30,60,'2','1',32,16,'5-6 节',NULL,'1',3,28,10),
-('202610013','2026-2027-1','1701001','T2026014','计2601',32,60,'2','1',32,16,'7-8 节',NULL,'1',3,26,10),
+('202610012','2026-2027-1','0901008','T2026013','智能2601',30,60,'2','1',32,16,'5-6 节',NULL,'3',3,28,10),
+('202610013','2026-2027-1','1701001','T2026014','计2601',32,60,'2','1',32,16,'7-8 节',NULL,'3',3,26,10),
 ('202610014','2026-2027-1','0901001','T2026001','080901-2026-2',5,30,'3','1',64,16,'9-10 节',NULL,'0',1,NULL,5);
 
 INSERT INTO classroom (room_id, room_name, building, capacity, room_type, available_time, room_status) VALUES
@@ -688,7 +724,17 @@ INSERT INTO schedule_result (sched_id, tc_id, room_id, week_range, week_day, sta
 ('S20260010','202610003','A101','1-16','3',3,4,'3','0',NULL),
 ('S20260011','202610004','JS102','1-16','5',5,6,'3','0',NULL),
 ('S20260012','202610009','C301','1-16','4',7,8,'3','0',NULL),
-('S20260013','202610010','A102','1-16','1',1,2,'3','0',NULL);
+('S20260013','202610010','A102','1-16','1',1,2,'3','0',NULL),
+('S20260014','202610003','A201','1-16','5',1,2,'3','0',NULL),
+('S20260015','202610004','JS101','1-16','2',3,4,'3','0',NULL),
+('S20260016','202610005','B101','1-16','5',7,8,'3','0',NULL),
+('S20260017','202610006','A201','1-16','1',7,8,'3','0',NULL),
+('S20260018','202610006','A201','1-16','2',7,8,'3','0',NULL),
+('S20260019','202610006','A201','1-16','3',7,8,'3','0',NULL),
+('S20260020','202610007','A201','1-16','2',3,4,'3','0',NULL),
+('S20260021','202610010','A102','1-16','4',5,6,'3','0',NULL),
+('S20260022','202610012','A201','1-16','1',5,6,'3','0',NULL),
+('S20260023','202610013','A101','1-16','4',9,10,'3','0',NULL);
 
 INSERT INTO schedule_conflict (conflict_id, tc_id, other_tc_id, conflict_type, conflict_desc, suggest_plan, handle_status) VALUES
 ('CF20260001','202610009','202610008','04','体育（一）面向62人，C301容量45','改用B101（120座）周四7-8节','0');
@@ -699,7 +745,7 @@ INSERT INTO adjust_record (adjust_id, sched_id, adjust_type, old_value, new_valu
 
 INSERT INTO dual_enroll (enroll_id, stu_id, major_id, enroll_year, apply_date, score_avg, audit_status, finish_status, enroll_date, remark) VALUES
 ('DE20260001','U202341224','080901','2026-2027','2026-09-10',88.5,'0','0',NULL,'计算机双学位'),
-('DE20260002','U202341225','080901','2026-2027','2026-09-10',85.0,'1','0','2026-09-20','计算机双学位'),
+('DE20260002','U202341225','080901','2026-2027','2026-09-10',85.0,'1','1','2026-09-20','计算机双学位'),
 ('DE20260003','U202341226','120102','2026-2027','2026-09-11',79.5,'2','2',NULL,'名额已满');
 
 INSERT INTO study_record (rec_id, stu_id, program_type, major_id, course_id, tc_id, study_type, source_course_id, credit, conflict_type, audit_status, remark) VALUES
@@ -729,12 +775,12 @@ INSERT INTO eval_record (record_id, plan_id, tc_id, stu_id, score, item_score, c
 ('ER20250001','EP202502','202610001','U2023***06','91.0','{"教学态度":92,"内容组织":90,"教学方法":91}','总体满意','1','2026-06-01 10:00:00');
 
 INSERT INTO sys_role (role_id, role_name, data_scope, func_perm, role_status, remark) VALUES
-('R01','系统管理员','1','P01,P02,P03,P04,P05,P06,P07,P08,P09,P10,P11,P12,P13,P14,P15,P16','1','信息化办运维岗'),
-('R02','教务处管理员','1','P01,P02,P03,P04,P05,P07,P08,P09,P11,P12,P13,P14,P15,P16','1','教务处教务科、教学研究科、质量科'),
-('R03','学院教务员','2','P02,P04,P05,P06,P08,P10,P12,P13,P14','1','学院教务科'),
+('R01','系统管理员','1','P01,P02,P03,P04,P05,P06,P07,P08,P09,P10,P11,P12,P13,P14,P15,P16,P17,P18,P19,P20,P21,P22,P23','1','信息化办运维岗'),
+('R02','教务处管理员','1','P01,P02,P03,P04,P05,P07,P08,P09,P11,P12,P13,P14,P15,P16,P17,P18,P19,P22,P23','1','教务处教务科、教学研究科、质量科'),
+('R03','学院教务员','2','P02,P04,P05,P06,P08,P10,P12,P13,P14,P19,P21,P22,P23','1','学院教务科'),
 ('R04','专业负责人/教师','3','P06,P08,P10,P12,P15','1','系主任、专业负责人、任课教师'),
 ('R05','学生','3','P12,P13,P14,P15','1','在校本科生'),
-('R06','教室管理员/审计员','1','P12,P16','1','后勤集团、审计岗');
+('R06','教室管理员/审计员','1','P12,P16','1','后勤集团、审计岗（仅日志审计，不含角色配置）');
 
 -- 演示账号（口令摘要 = SHA-256("mis@" + 明文口令)，与 AuthService.hash 一致）
 -- 口令规则：系统管理员 admin 为 123456；

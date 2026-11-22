@@ -6,9 +6,11 @@ import com.ustb.mis.common.Result;
 import com.ustb.mis.entity.Course;
 import com.ustb.mis.entity.CreditApply;
 import com.ustb.mis.entity.CreditItem;
+import com.ustb.mis.entity.ProgramCourse;
 import com.ustb.mis.mapper.CourseMapper;
 import com.ustb.mis.mapper.CreditApplyMapper;
 import com.ustb.mis.mapper.CreditItemMapper;
+import com.ustb.mis.mapper.ProgramCourseMapper;
 import com.ustb.mis.mapper.ViewMapper;
 import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.RequirePerm;
@@ -27,12 +29,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 转专业学分转换：申请、明细认定与审核（对应 3.5.6）。
+ * 认定基准为目标（替代）课程学分，并校验目标课程归属转入专业方案（P1-07）。
  */
 @RestController
 @RequestMapping("/api/credit-transfers")
@@ -42,16 +44,18 @@ public class CreditController {
     private final CreditApplyMapper applyMapper;
     private final CreditItemMapper itemMapper;
     private final CourseMapper courseMapper;
+    private final ProgramCourseMapper programCourseMapper;
     private final ViewMapper viewMapper;
     private final CodeService codeService;
     private final AuditService auditService;
 
     public CreditController(CreditApplyMapper applyMapper, CreditItemMapper itemMapper,
-                            CourseMapper courseMapper, ViewMapper viewMapper,
-                            CodeService codeService, AuditService auditService) {
+                            CourseMapper courseMapper, ProgramCourseMapper programCourseMapper,
+                            ViewMapper viewMapper, CodeService codeService, AuditService auditService) {
         this.applyMapper = applyMapper;
         this.itemMapper = itemMapper;
         this.courseMapper = courseMapper;
+        this.programCourseMapper = programCourseMapper;
         this.viewMapper = viewMapper;
         this.codeService = codeService;
         this.auditService = auditService;
@@ -100,21 +104,26 @@ public class CreditController {
         applyMapper.insert(apply);
         for (Map<String, Object> item : items) {
             seq++;
+            String sourceCourseId = str(item.get("sourceCourseId"));
+            String targetCourseId = str(item.get("targetCourseId"));
+            Course source = courseMapper.selectById(sourceCourseId);
+            if (source == null) {
+                throw new BizException("原修课程不存在：" + sourceCourseId);
+            }
+            Course target = requireTarget(targetCourseId, toMajor);
+            BigDecimal targetCredit = item.get("targetCredit") == null
+                    ? target.getCredit() : new BigDecimal(str(item.get("targetCredit")));
+            if (targetCredit.compareTo(target.getCredit()) > 0) {
+                throw new BizException("认定学分不得大于替代课程（" + target.getCourseName() + "）学分 "
+                        + target.getCredit());
+            }
+            requireNotDuplicated(stuId, toMajor, sourceCourseId);
             CreditItem ci = new CreditItem();
             ci.setApplyId(apply.getApplyId());
             ci.setSeqNo(seq);
-            ci.setSourceCourseId(str(item.get("sourceCourseId")));
-            Course source = courseMapper.selectById(ci.getSourceCourseId());
-            if (source == null) {
-                throw new BizException("原修课程不存在：" + ci.getSourceCourseId());
-            }
+            ci.setSourceCourseId(sourceCourseId);
             ci.setSourceCredit(source.getCredit());
-            ci.setTargetCourseId(str(item.get("targetCourseId")));
-            BigDecimal targetCredit = item.get("targetCredit") == null
-                    ? source.getCredit() : new BigDecimal(str(item.get("targetCredit")));
-            if (targetCredit.compareTo(source.getCredit()) > 0) {
-                throw new BizException("认定学分不得大于原课程学分（" + source.getCourseName() + "）");
-            }
+            ci.setTargetCourseId(targetCourseId);
             ci.setTargetCredit(targetCredit);
             ci.setTransferType(str(item.get("transferType")) == null ? "01" : str(item.get("transferType")));
             ci.setItemStatus("0");
@@ -129,6 +138,40 @@ public class CreditController {
         return Result.ok();
     }
 
+    /** 目标课程必须存在且属于转入专业培养方案 */
+    private Course requireTarget(String targetCourseId, String toMajor) {
+        if (targetCourseId == null || targetCourseId.isBlank()) {
+            throw new BizException("替代（目标）课程不能为空");
+        }
+        Course target = courseMapper.selectById(targetCourseId);
+        if (target == null) {
+            throw new BizException("替代课程不存在：" + targetCourseId);
+        }
+        long inProgram = programCourseMapper.selectCount(Wrappers.<ProgramCourse>lambdaQuery()
+                .eq(ProgramCourse::getCourseId, targetCourseId)
+                .eq(ProgramCourse::getMajorId, toMajor));
+        if (inProgram == 0) {
+            throw new BizException("替代课程不属于转入专业的培养方案：" + target.getCourseName());
+        }
+        return target;
+    }
+
+    /** 同一学生、同一原课程、同一转入专业只能认定一次 */
+    private void requireNotDuplicated(String stuId, String toMajor, String sourceCourseId) {
+        List<CreditApply> applies = applyMapper.selectList(Wrappers.<CreditApply>lambdaQuery()
+                .eq(CreditApply::getStuId, stuId)
+                .eq(CreditApply::getToMajor, toMajor)
+                .ne(CreditApply::getAuditStatus, "2"));
+        for (CreditApply apply : applies) {
+            long dup = itemMapper.selectCount(Wrappers.<CreditItem>lambdaQuery()
+                    .eq(CreditItem::getApplyId, apply.getApplyId())
+                    .eq(CreditItem::getSourceCourseId, sourceCourseId));
+            if (dup > 0) {
+                throw new BizException("该课程已在本专业申请过学分认定：" + sourceCourseId);
+            }
+        }
+    }
+
     @PutMapping("/{applyId}/items/{seqNo}")
     @Transactional
     public Result<Void> updateItem(@PathVariable String applyId, @PathVariable Integer seqNo,
@@ -141,15 +184,21 @@ public class CreditController {
         CreditItem update = new CreditItem();
         update.setApplyId(applyId);
         update.setSeqNo(seqNo);
+        String targetCourseId = body.get("targetCourseId") == null
+                ? item.getTargetCourseId() : str(body.get("targetCourseId"));
+        Course target = courseMapper.selectById(targetCourseId);
+        if (target == null) {
+            throw new BizException("替代课程不存在");
+        }
         if (body.get("targetCredit") != null) {
             BigDecimal credit = new BigDecimal(str(body.get("targetCredit")));
-            if (credit.compareTo(item.getSourceCredit()) > 0) {
-                throw new BizException("认定学分不得大于原课程学分");
+            if (credit.compareTo(target.getCredit()) > 0) {
+                throw new BizException("认定学分不得大于替代课程学分 " + target.getCredit());
             }
             update.setTargetCredit(credit);
         }
         if (body.get("targetCourseId") != null) {
-            update.setTargetCourseId(str(body.get("targetCourseId")));
+            update.setTargetCourseId(targetCourseId);
         }
         if (body.get("transferType") != null) {
             update.setTransferType(str(body.get("transferType")));

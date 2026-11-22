@@ -28,5 +28,9 @@ mybatis-plus:
 
 mis:
   jwt:
-    secret: mis-ustb-professional-setting-and-scheduling-system-2026-secret-key
+    # 生产环境通过环境变量 MIS_JWT_SECRET 注入，避免密钥随代码泄露
+    secret: ${MIS_JWT_SECRET:mis-ustb-professional-setting-and-scheduling-system-2026-secret-key}
     expire-hours: 12
+  cors:
+    # 允许跨域的前端来源，多个用英文逗号分隔
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173

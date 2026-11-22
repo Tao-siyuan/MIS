@@ -72,7 +72,16 @@ public class AdjustController {
         if (user.getTeacherId() != null && !user.hasPerm("P11")) {
             teacherId = user.getTeacherId();
         }
-        return Result.ok(viewMapper.listAdjustments(term, approveStatus, teacherId));
+        List<Map<String, Object>> rows = viewMapper.listAdjustments(term, approveStatus, teacherId);
+        // 学生只能查看本人班级已批准的调课（P1-09）
+        if (user.getClassId() != null) {
+            rows = rows.stream()
+                    .filter(r -> "1".equals(String.valueOf(r.get("approveStatus"))))
+                    .filter(r -> r.get("classIds") != null
+                            && String.valueOf(r.get("classIds")).contains(user.getClassId()))
+                    .toList();
+        }
+        return Result.ok(rows);
     }
 
     @PostMapping
@@ -86,6 +95,11 @@ public class AdjustController {
         TeachingClass tc = tcMapper.selectById(sched.getTcId());
         if (tc == null) {
             throw new BizException("教学班不存在");
+        }
+        LoginUser current = UserContext.require();
+        if (current.getTeacherId() != null && !current.hasPerm("P11")
+                && !current.getTeacherId().equals(tc.getTeacherId())) {
+            throw new BizException(403, "只能对本人任教的教学班发起调课");
         }
         String roomId = str(body.get("roomId"));
         int day = Integer.parseInt(str(body.get("weekDay")));
@@ -137,6 +151,21 @@ public class AdjustController {
         }
         if (!"0".equals(record.getApproveStatus())) {
             throw new BizException("该申请已处理");
+        }
+        // 审批前复核冲突，避免申请后课表变化导致新冲突（P1-13）
+        ScheduleResult origin = resultMapper.selectById(record.getSchedId());
+        if (origin == null) {
+            throw new BizException("原排课记录已不存在，请驳回该申请");
+        }
+        TeachingClass tc = tcMapper.selectById(origin.getTcId());
+        if (tc == null) {
+            throw new BizException("教学班已不存在，请驳回该申请");
+        }
+        List<String> conflicts = scheduleService.checkConflict(tc, record.getNewRoomId(),
+                Integer.parseInt(record.getNewWeekDay()), record.getNewStartSlot(),
+                record.getNewEndSlot(), record.getSchedId());
+        if (!conflicts.isEmpty()) {
+            throw new BizException("复核发现新冲突，不能批准：" + String.join("；", conflicts));
         }
         ScheduleResult update = new ScheduleResult();
         update.setSchedId(record.getSchedId());

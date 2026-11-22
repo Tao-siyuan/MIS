@@ -109,10 +109,20 @@ async function onViewChange() {
 }
 
 async function load() {
+  if (view.value !== 'self' && !key.value) {
+    rows.value = []
+    return
+  }
   const params = { term: term.value, view: view.value }
   if (view.value !== 'self') params.key = key.value
-  const data = await api.timetable(params)
-  rows.value = data.rows || []
+  try {
+    const data = await api.timetable(params)
+    rows.value = data.rows || []
+  } catch (e) {
+    // 学生可能没有班级或教师没有分配教学班，此处友好提示而非空白报错（P2-04）
+    rows.value = []
+    ElMessage.warning(e?.response?.data?.msg || '暂无可查询的课表数据')
+  }
 }
 
 function openDetail(item) {
@@ -146,6 +156,14 @@ onMounted(async () => {
     classes.value = await api.classes()
     teachers.value = await api.teachers()
     rooms.value = await api.rooms()
+  }
+  // 默认视图按角色决定：教师看本人课表，教务看班级课表（P2-04）
+  if (user.user?.teacherId) {
+    view.value = 'teacher'
+    key.value = user.user.teacherId
+  } else if (!isStudent.value) {
+    view.value = 'class'
+    key.value = classes.value[0]?.classId || ''
   }
   await load()
 })

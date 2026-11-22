@@ -56,7 +56,13 @@
         <el-table-column prop="userId" label="用户编号" width="130" />
         <el-table-column prop="userName" label="登录名" width="110" />
         <el-table-column prop="realName" label="姓名" width="100" />
-        <el-table-column prop="roleName" label="角色" width="150" />
+        <el-table-column label="角色（可多选）" width="200">
+          <template #default="{ row }">
+            <el-tag v-for="(n, i) in (row.roleNames || [row.roleName])" :key="i" size="small" effect="plain" style="margin: 1px">
+              {{ n }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="collegeId" label="学院" width="80" />
         <el-table-column prop="classId" label="班级" width="100" />
         <el-table-column prop="lastLogin" label="最近登录" width="170" />
@@ -68,10 +74,12 @@
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row }">
             <el-select
-              :model-value="row.roleId"
+              :model-value="row.roleIds?.length ? row.roleIds : [row.roleId]"
+              multiple
+              collapse-tags
               size="small"
-              style="width: 110px"
-              @change="(v) => changeRole(row, v)"
+              style="width: 130px"
+              @change="(v) => changeRoles(row, v)"
             >
               <el-option v-for="r in roles" :key="r.roleId" :label="r.roleName" :value="r.roleId" />
             </el-select>
@@ -141,16 +149,23 @@ const permList = [
   { code: 'P04', name: '通识课程计划' },
   { code: 'P05', name: '课程库维护' },
   { code: 'P06', name: '新增课程申报' },
-  { code: 'P07', name: '新增课程审批' },
-  { code: 'P08', name: '教学班管理' },
+  { code: 'P07', name: '新增课程终审' },
+  { code: 'P08', name: '教学班查询' },
   { code: 'P09', name: '排课与课表发布' },
   { code: 'P10', name: '调课申请' },
   { code: 'P11', name: '调课审批' },
   { code: 'P12', name: '课表查询' },
-  { code: 'P13', name: '辅修/双学位' },
+  { code: 'P13', name: '双学位报名与查询' },
   { code: 'P14', name: '学分转换' },
-  { code: 'P15', name: '课程评价' },
-  { code: 'P16', name: '角色与日志审计' }
+  { code: 'P15', name: '评教提交与结果查询' },
+  { code: 'P16', name: '操作日志审计' },
+  { code: 'P17', name: '双学位录取审批' },
+  { code: 'P18', name: '评教方案管理' },
+  { code: 'P19', name: '教学班维护' },
+  { code: 'P20', name: '角色与用户配置' },
+  { code: 'P21', name: '新增课程学院初审' },
+  { code: 'P22', name: '跨院课程确认' },
+  { code: 'P23', name: '通识课程承接确认' }
 ]
 const permName = (code) => permList.find((p) => p.code === code)?.name || code
 
@@ -200,8 +215,13 @@ async function toggleRole(row) {
   await loadRoles()
 }
 
-async function changeRole(row, roleId) {
-  await api.changeUserRole(row.userId, roleId)
+/** 多角色增量维护，首个角色为主角色（P1-11） */
+async function changeRoles(row, roleIds) {
+  if (!roleIds?.length) {
+    ElMessage.warning('至少保留一个角色')
+    return
+  }
+  await api.changeUserRoles(row.userId, roleIds)
   ElMessage.success('角色已调整')
   await loadUsers()
 }

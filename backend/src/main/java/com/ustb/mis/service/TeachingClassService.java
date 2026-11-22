@@ -106,6 +106,7 @@ public class TeachingClassService {
             if ("4".equals(tc.getTcStatus())) {
                 throw new BizException("教学班已发布课表，不能修改");
             }
+            requireOwnership(tc);
         }
         if (body.get("teacherId") != null) {
             tc.setTeacherId(str(body.get("teacherId")));
@@ -152,6 +153,19 @@ public class TeachingClassService {
         } else if (tc.getTcStatus() == null || "0".equals(tc.getTcStatus())) {
             tc.setTcStatus("1");
         }
+        // 教师（本人数据范围）只能调整偏好时段与不可用时间，其余字段由教务处/学院教务员维护（P0-03）
+        LoginUser current = UserContext.require();
+        if (!isNew && "3".equals(current.getDataScope())) {
+            TeachingClass limited = new TeachingClass();
+            limited.setTcId(tc.getTcId());
+            limited.setPreferSlot(tc.getPreferSlot());
+            limited.setUnavailableTime(tc.getUnavailableTime());
+            tcMapper.updateById(limited);
+            auditService.record("02", "teaching_class:" + tc.getTcId(), null,
+                    Map.of("preferSlot", tc.getPreferSlot() == null ? "" : tc.getPreferSlot(),
+                            "unavailableTime", tc.getUnavailableTime() == null ? "" : tc.getUnavailableTime()));
+            return;
+        }
         if (isNew) {
             tcMapper.insert(tc);
             auditService.record("01", "teaching_class:" + tc.getTcId(), null, tc);
@@ -196,8 +210,10 @@ public class TeachingClassService {
                 messages.add(pc.getCourseId() + " 为毕业学期课程，不参与排课");
                 continue;
             }
+            // 按课程开课学期拆分到对应学期，避免全部堆在同一个 term（P2-07）
+            String courseTerm = termFor(grade, pc.getOpenSemester(), term);
             long exists = tcMapper.selectCount(Wrappers.<TeachingClass>lambdaQuery()
-                    .eq(TeachingClass::getTerm, term)
+                    .eq(TeachingClass::getTerm, courseTerm)
                     .eq(TeachingClass::getCourseId, pc.getCourseId())
                     .eq(TeachingClass::getClassIds, classIds));
             if (exists > 0) {
@@ -205,8 +221,8 @@ public class TeachingClassService {
                 continue;
             }
             TeachingClass tc = new TeachingClass();
-            tc.setTcId(codeService.nextTcId(term));
-            tc.setTerm(term);
+            tc.setTcId(codeService.nextTcId(courseTerm));
+            tc.setTerm(courseTerm);
             tc.setCourseId(pc.getCourseId());
             tc.setClassIds(classIds);
             tc.setStudentNum(studentNum);
@@ -238,6 +254,7 @@ public class TeachingClassService {
         return result;
     }
 
+    /** 教师分配：按开课学院筛选在职教师，取当前教学班数量最少者，避免随机指派（P2-07） */
     private Teacher pickTeacher(String collegeId, String courseId) {
         if (collegeId == null) {
             return null;
@@ -249,8 +266,45 @@ public class TeachingClassService {
         if (teachers.isEmpty()) {
             return null;
         }
-        int idx = Math.abs(courseId.hashCode()) % teachers.size();
-        return teachers.get(idx);
+        Map<String, Long> load = new HashMap<>();
+        for (TeachingClass tc : tcMapper.selectList(Wrappers.<TeachingClass>lambdaQuery()
+                .isNotNull(TeachingClass::getTeacherId))) {
+            load.merge(tc.getTeacherId(), 1L, Long::sum);
+        }
+        return teachers.stream()
+                .min(java.util.Comparator.comparingLong(t -> load.getOrDefault(t.getTeacherId(), 0L)))
+                .orElse(teachers.get(0));
+    }
+
+    /** 依据入学年级与开课学期推算学期：2026 级第 3 学期 → 2027-2028-1 */
+    private String termFor(String grade, String openSemester, String fallback) {
+        if (grade == null || !grade.matches("\\d{4}") || openSemester == null
+                || !openSemester.matches("[1-8]")) {
+            return fallback;
+        }
+        int enrollYear = Integer.parseInt(grade);
+        int semester = Integer.parseInt(openSemester);
+        int year = enrollYear + (semester - 1) / 2;
+        return year + "-" + (year + 1) + "-" + ((semester - 1) % 2 + 1);
+    }
+
+    /** 数据范围校验：全校可维护；学院教务员限本学院开课；教师限本人任教（P0-03） */
+    private void requireOwnership(TeachingClass tc) {
+        LoginUser user = UserContext.require();
+        if ("1".equals(user.getDataScope())) {
+            return;
+        }
+        if ("2".equals(user.getDataScope())) {
+            Course course = courseMapper.selectById(tc.getCourseId());
+            if (course != null && user.getCollegeId() != null
+                    && !user.getCollegeId().equals(course.getOpenCollege())) {
+                throw new BizException(403, "只能维护本学院开设的教学班");
+            }
+            return;
+        }
+        if (user.getTeacherId() == null || !user.getTeacherId().equals(tc.getTeacherId())) {
+            throw new BizException(403, "只能维护本人任教的教学班");
+        }
     }
 
     @Transactional
@@ -259,6 +313,7 @@ public class TeachingClassService {
         if (tc == null) {
             throw new BizException("教学班不存在");
         }
+        requireOwnership(tc);
         TeachingClass update = new TeachingClass();
         update.setTcId(tcId);
         update.setTcStatus(status);
@@ -273,6 +328,10 @@ public class TeachingClassService {
         TeachingClass tc = tcMapper.selectById(tcId);
         if (tc == null) {
             throw new BizException("教学班不存在");
+        }
+        requireOwnership(tc);
+        if ("4".equals(tc.getTcStatus())) {
+            throw new BizException("教学班已发布课表，不能删除");
         }
         long sched = scheduleResultMapper.selectCount(Wrappers.<ScheduleResult>lambdaQuery()
                 .eq(ScheduleResult::getTcId, tcId));

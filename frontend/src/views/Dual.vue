@@ -16,7 +16,7 @@
               <el-option label="未录取" value="2" />
             </el-select>
             <span class="spacer" />
-            <el-button type="primary" size="small" @click="openEnroll">双学位报名</el-button>
+            <el-button v-if="isStudent" type="primary" size="small" @click="openEnroll">双学位报名</el-button>
           </div>
           <el-table :data="enrolls" border size="small" max-height="480">
             <el-table-column prop="enrollId" label="报名编号" width="120" />
@@ -33,18 +33,18 @@
             </el-table-column>
             <el-table-column label="修读状态" width="100">
               <template #default="{ row }">
-                {{ { 0: '修读中', 1: '已结业', 2: '已退修' }[row.finishStatus] }}
+                {{ { 0: '未开始', 1: '修读中', 2: '已退修', 3: '已结业' }[row.finishStatus] || '-' }}
               </template>
             </el-table-column>
             <el-table-column prop="enrollDate" label="录取日期" width="110" />
             <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
-                <template v-if="row.auditStatus === '0'">
+                <template v-if="canAudit && row.auditStatus === '0'">
                   <el-button link type="success" size="small" @click="auditEnroll(row, '1')">录取</el-button>
                   <el-button link type="danger" size="small" @click="auditEnroll(row, '0')">不录取</el-button>
                 </template>
                 <el-button
-                  v-if="row.auditStatus === '1' && row.finishStatus === '0'"
+                  v-if="canAudit && row.auditStatus === '1' && row.finishStatus === '1'"
                   link
                   type="warning"
                   size="small"
@@ -62,7 +62,7 @@
               <el-radio-button value="1">辅修</el-radio-button>
             </el-radio-group>
             <span class="spacer" />
-            <el-button size="small" @click="openGenerate">按方案生成修读记录</el-button>
+            <el-button v-if="canAudit" size="small" @click="openGenerate">按方案生成修读记录</el-button>
             <el-button size="small" @click="openSummary">结业预审</el-button>
           </div>
           <el-table :data="studies" border size="small" max-height="480">
@@ -168,6 +168,9 @@
         <el-form-item label="方案年级" required>
           <el-input v-model="generateForm.grade" placeholder="2026" />
         </el-form-item>
+        <el-form-item label="学期" required>
+          <el-input v-model="generateForm.term" placeholder="2026-2027-1" />
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="generateDialog = false">取消</el-button>
@@ -242,6 +245,8 @@ const generateForm = reactive({ programType: '2', grade: '2026' })
 const approveForm = reactive({})
 
 const isStudent = computed(() => user.user?.dataScope === '3' && !user.user?.teacherId)
+/** 录取审批与修读记录生成仅对具备 P17 的角色开放（P0-01） */
+const canAudit = computed(() => user.hasPerm('P17'))
 const dualPrograms = computed(() => {
   const seen = new Set()
   return majors.value.filter((m) => {
@@ -289,7 +294,7 @@ async function quit(row) {
 }
 
 function openGenerate() {
-  Object.assign(generateForm, { programType: programType.value, grade: '2026' })
+  Object.assign(generateForm, { programType: programType.value, grade: '2026', term: term.value })
   generateDialog.value = true
 }
 

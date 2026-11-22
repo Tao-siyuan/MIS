@@ -17,6 +17,7 @@ import java.util.Map;
 
 /**
  * 课程评价：方案配置、评教任务、匿名提交与结果统计。
+ * 评教方案的新增/发布/结束仅授予 P18（教务处），学生与教师只有 P15（提交与查询）。
  */
 @RestController
 @RequestMapping("/api/eval")
@@ -35,21 +36,21 @@ public class EvalController {
     }
 
     @PostMapping("/plans")
-    @RequirePerm({"P15", "P03"})
+    @RequirePerm("P18")
     public Result<Void> savePlan(@RequestBody Map<String, Object> body) {
         evalService.savePlan(body);
         return Result.ok();
     }
 
     @PostMapping("/plans/{id}/publish")
-    @RequirePerm({"P15", "P03"})
+    @RequirePerm("P18")
     public Result<Void> publish(@PathVariable String id) {
         evalService.publishPlan(id);
         return Result.ok();
     }
 
     @PostMapping("/plans/{id}/finish")
-    @RequirePerm({"P15", "P03"})
+    @RequirePerm("P18")
     public Result<Void> finish(@PathVariable String id) {
         evalService.finishPlan(id);
         return Result.ok();

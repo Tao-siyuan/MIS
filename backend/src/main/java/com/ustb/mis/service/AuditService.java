@@ -16,6 +16,8 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * 操作日志：关键操作留痕，只追加、不修改（对应 3.5.8 支撑模块）。
+ * 操作类型：01新增 / 02修改 / 03删除 / 04审批 / 05发布 / 06导出 / 07登录 / 08登出。
+ * 操作结果：1成功 / 0失败。
  */
 @Slf4j
 @Service
@@ -31,18 +33,27 @@ public class AuditService {
         this.objectMapper = objectMapper;
     }
 
+    /** 以当前登录用户身份记录 */
     public void record(String operType, String operObject, Object before, Object after) {
+        LoginUser user = UserContext.get();
+        recordAs(user == null ? "anonymous" : user.getUserId(),
+                user == null ? null : user.getRoleId(),
+                operType, operObject, before, after, "1");
+    }
+
+    /** 指定操作人记录（登录/登出等上下文尚未建立或已清理的场景） */
+    public void recordAs(String userId, String roleId, String operType, String operObject,
+                         Object before, Object after, String operResult) {
         try {
-            LoginUser user = UserContext.get();
             AuditLog entry = new AuditLog();
             entry.setLogId("L" + LocalDateTime.now().format(FMT));
-            entry.setUserId(user == null ? "anonymous" : user.getUserId());
-            entry.setRoleId(user == null ? null : user.getRoleId());
+            entry.setUserId(userId == null || userId.isBlank() ? "anonymous" : userId);
+            entry.setRoleId(roleId);
             entry.setOperType(operType);
             entry.setOperObject(trim(operObject, 60));
             entry.setBeforeValue(trim(toJson(before), 300));
             entry.setAfterValue(trim(toJson(after), 300));
-            entry.setOperResult("1");
+            entry.setOperResult(operResult == null ? "1" : operResult);
             entry.setClientIp(clientIp());
             entry.setOperTime(LocalDateTime.now());
             auditLogMapper.insert(entry);

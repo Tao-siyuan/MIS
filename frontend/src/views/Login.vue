@@ -2,7 +2,7 @@
   <div class="login-page">
     <div class="brand">
       <div class="brand-inner">
-        <div class="brand-tag">北京科技大学 · 经济管理学院</div>
+        <div class="brand-tag">北京科技大学 · 教务处</div>
         <h1>专业设置及排课<br />管理系统</h1>
         <p class="brand-desc">
           覆盖“专业设置—课程设置—排课—课表服务”全流程，以课程主数据为纽带，
@@ -40,12 +40,14 @@
           </el-button>
         </el-form>
 
-        <el-divider content-position="left"><span class="muted">演示账号（点击自动填充账号与口令）</span></el-divider>
-        <div class="accounts">
-          <el-tag v-for="a in accounts" :key="a.user" class="account" @click="fill(a)">
-            {{ a.label }}
-          </el-tag>
-        </div>
+        <template v-if="showDemo">
+          <el-divider content-position="left"><span class="muted">演示账号（点击自动填充账号与口令）</span></el-divider>
+          <div class="accounts">
+            <el-tag v-for="a in accounts" :key="a.user" class="account" @click="fill(a)">
+              {{ a.label }}
+            </el-tag>
+          </div>
+        </template>
       </el-card>
     </div>
   </div>
@@ -67,6 +69,8 @@ const rules = {
   userName: [{ required: true, message: '请输入账号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
+/** 演示账号仅在开发环境展示，生产构建不暴露可点选账号（P3-07） */
+const showDemo = import.meta.env.DEV
 const accounts = [
   { label: '系统管理员 admin', user: 'admin', pwd: '123456' },
   { label: '教务处管理员 B220001', user: 'B220001', pwd: 'USTB@220001' },

@@ -21,7 +21,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/teaching-classes")
-@RequirePerm({"P08", "P09", "P12"})
+@RequirePerm({"P08", "P09", "P12", "P15", "P19"})
 public class TeachingClassController {
 
     private final TeachingClassService tcService;
@@ -31,7 +31,7 @@ public class TeachingClassController {
     }
 
     @GetMapping
-    @RequirePerm({"P08", "P09", "P12", "P15"})
+    @RequirePerm({"P08", "P09", "P12", "P15", "P19"})
     public Result<List<Map<String, Object>>> list(@RequestParam(required = false) String term,
                                                   @RequestParam(required = false) String keyword,
                                                   @RequestParam(required = false) String tcStatus) {
@@ -39,21 +39,21 @@ public class TeachingClassController {
     }
 
     @PostMapping
-    @RequirePerm("P08")
+    @RequirePerm("P19")
     public Result<Void> save(@RequestBody Map<String, Object> body) {
         tcService.save(body);
         return Result.ok();
     }
 
     @PostMapping("/batch-generate")
-    @RequirePerm("P08")
+    @RequirePerm("P19")
     public Result<Map<String, Object>> batchGenerate(@RequestBody Map<String, Object> body) {
         return Result.ok(tcService.batchGenerate(str(body.get("term")), str(body.get("majorId")),
                 str(body.get("grade")), str(body.get("programType"))));
     }
 
     @PutMapping("/{tcId}/status")
-    @RequirePerm({"P08", "P09"})
+    @RequirePerm({"P19", "P09"})
     public Result<Void> changeStatus(@PathVariable String tcId, @RequestParam String status,
                                      @RequestParam(required = false) String reason) {
         tcService.changeStatus(tcId, status, reason);
@@ -61,7 +61,7 @@ public class TeachingClassController {
     }
 
     @DeleteMapping("/{tcId}")
-    @RequirePerm("P08")
+    @RequirePerm("P19")
     public Result<Void> delete(@PathVariable String tcId) {
         tcService.delete(tcId);
         return Result.ok();

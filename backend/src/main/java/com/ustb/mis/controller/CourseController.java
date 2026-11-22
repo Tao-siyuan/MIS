@@ -6,10 +6,12 @@ import com.ustb.mis.common.Result;
 import com.ustb.mis.entity.Course;
 import com.ustb.mis.entity.NewCourseApply;
 import com.ustb.mis.entity.ProgramCourse;
+import com.ustb.mis.entity.ScheduleResult;
 import com.ustb.mis.entity.TeachingClass;
 import com.ustb.mis.mapper.CourseMapper;
 import com.ustb.mis.mapper.NewCourseApplyMapper;
 import com.ustb.mis.mapper.ProgramCourseMapper;
+import com.ustb.mis.mapper.ScheduleResultMapper;
 import com.ustb.mis.mapper.TeachingClassMapper;
 import com.ustb.mis.mapper.ViewMapper;
 import com.ustb.mis.security.LoginUser;
@@ -43,17 +45,20 @@ public class CourseController {
     private final NewCourseApplyMapper applyMapper;
     private final ProgramCourseMapper programCourseMapper;
     private final TeachingClassMapper tcMapper;
+    private final ScheduleResultMapper schedMapper;
     private final ViewMapper viewMapper;
     private final CodeService codeService;
     private final AuditService auditService;
 
     public CourseController(CourseMapper courseMapper, NewCourseApplyMapper applyMapper,
                             ProgramCourseMapper programCourseMapper, TeachingClassMapper tcMapper,
-                            ViewMapper viewMapper, CodeService codeService, AuditService auditService) {
+                            ScheduleResultMapper schedMapper, ViewMapper viewMapper,
+                            CodeService codeService, AuditService auditService) {
         this.courseMapper = courseMapper;
         this.applyMapper = applyMapper;
         this.programCourseMapper = programCourseMapper;
         this.tcMapper = tcMapper;
+        this.schedMapper = schedMapper;
         this.viewMapper = viewMapper;
         this.codeService = codeService;
         this.auditService = auditService;
@@ -97,6 +102,7 @@ public class CourseController {
         return Result.ok();
     }
 
+    /** 已被方案引用的课程仅允许修改大纲与考核方式（P1-05） */
     @PutMapping("/courses/{id}")
     @RequirePerm("P05")
     public Result<Void> update(@PathVariable String id, @RequestBody Course course) {
@@ -107,10 +113,22 @@ public class CourseController {
         long used = programCourseMapper.selectCount(Wrappers.<ProgramCourse>lambdaQuery()
                 .eq(ProgramCourse::getCourseId, id));
         if (used > 0) {
-            if ((course.getCredit() != null && course.getCredit().compareTo(old.getCredit()) != 0)
-                    || (course.getTotalHours() != null && !course.getTotalHours().equals(old.getTotalHours()))) {
-                throw new BizException("该课程已被培养方案引用，只允许修改课程大纲与考核方式");
+            boolean locked = (course.getCredit() != null && old.getCredit() != null
+                    && course.getCredit().compareTo(old.getCredit()) != 0)
+                    || (course.getTotalHours() != null && !course.getTotalHours().equals(old.getTotalHours()))
+                    || (course.getCourseName() != null && !course.getCourseName().equals(old.getCourseName()))
+                    || (course.getCourseType() != null && !course.getCourseType().equals(old.getCourseType()))
+                    || (course.getOpenCollege() != null && !course.getOpenCollege().equals(old.getOpenCollege()));
+            if (locked) {
+                throw new BizException("该课程已被培养方案引用，仅允许修改课程大纲与考核方式");
             }
+            Course update = new Course();
+            update.setCourseId(id);
+            update.setSyllabus(course.getSyllabus());
+            update.setAssessType(course.getAssessType());
+            courseMapper.updateById(update);
+            auditService.record("02", "course:" + id, old, update);
+            return Result.ok();
         }
         course.setCourseId(id);
         courseMapper.updateById(course);
@@ -118,19 +136,26 @@ public class CourseController {
         return Result.ok();
     }
 
+    /** 停开校验：覆盖 0/1/3/4 全部在用状态，并叠加排课结果判断（P1-04） */
     @PutMapping("/courses/{id}/status")
     @RequirePerm("P05")
-    public Result<Void> changeStatus(@PathVariable String id, @RequestParam String status) {
+    public Result<Map<String, Object>> changeStatus(@PathVariable String id, @RequestParam String status) {
         Course old = courseMapper.selectById(id);
         if (old == null) {
             throw new BizException("课程不存在");
         }
+        List<String> affected = new ArrayList<>();
         if ("0".equals(status)) {
-            long running = tcMapper.selectCount(Wrappers.<TeachingClass>lambdaQuery()
+            List<TeachingClass> running = tcMapper.selectList(Wrappers.<TeachingClass>lambdaQuery()
                     .eq(TeachingClass::getCourseId, id)
-                    .in(TeachingClass::getTcStatus, List.of("0", "1", "3")));
-            if (running > 0) {
-                throw new BizException("存在进行中的教学班，不能停开");
+                    .in(TeachingClass::getTcStatus, List.of("0", "1", "3", "4")));
+            for (TeachingClass tc : running) {
+                long sched = schedMapper.selectCount(Wrappers.<ScheduleResult>lambdaQuery()
+                        .eq(ScheduleResult::getTcId, tc.getTcId()));
+                affected.add(tc.getTcId() + "（状态 " + tc.getTcStatus() + "，排课 " + sched + " 段）");
+            }
+            if (!affected.isEmpty()) {
+                throw new BizException("存在进行中或已发布的教学班，不能停开：" + String.join("；", affected));
             }
         }
         Course update = new Course();
@@ -139,36 +164,47 @@ public class CourseController {
         courseMapper.updateById(update);
         auditService.record("02", "course:" + id, Map.of("courseStatus", old.getCourseStatus()),
                 Map.of("courseStatus", status));
-        return Result.ok();
+        return Result.ok(Map.of("affected", affected));
     }
 
-    // ---------------- 新增课程申报 ----------------
+    // ---------------- 新增课程申报（教师申报 → 学院初审 → 教务处终审） ----------------
 
     @GetMapping("/new-course-applies")
-    @RequirePerm({"P06", "P07", "P05"})
+    @RequirePerm({"P06", "P07", "P21", "P05"})
     public Result<List<Map<String, Object>>> applies(@RequestParam(required = false) String status,
                                                      @RequestParam(required = false) String mine) {
         LoginUser user = UserContext.require();
         String applyUser = null;
-        if ("1".equals(mine) && user.getTeacherId() != null) {
+        if ("1".equals(mine)) {
+            if (user.getTeacherId() == null) {
+                return Result.ok(List.of());
+            }
             applyUser = user.getTeacherId();
         }
-        return Result.ok(viewMapper.listNewCourseApplies(status, applyUser));
+        List<Map<String, Object>> rows = viewMapper.listNewCourseApplies(status, applyUser);
+        if ("2".equals(user.getDataScope()) && user.getCollegeId() != null) {
+            rows = rows.stream()
+                    .filter(r -> user.getCollegeId().equals(String.valueOf(r.get("collegeId"))))
+                    .toList();
+        }
+        return Result.ok(new ArrayList<>(rows));
     }
 
     @PostMapping("/new-course-applies")
-    @RequirePerm({"P06", "P07"})
+    @RequirePerm("P06")
     public Result<Void> apply(@RequestBody Map<String, Object> body) {
         LoginUser user = UserContext.require();
+        if (user.getTeacherId() == null) {
+            throw new BizException("仅教师可申报新增课程");
+        }
         NewCourseApply apply = new NewCourseApply();
         apply.setApplyId(codeService.nextBillId("NC", "new_course_apply", "apply_id"));
-        apply.setApplyUser(user.getTeacherId() == null ? user.getUserId() : user.getTeacherId());
+        apply.setApplyUser(user.getTeacherId());
         apply.setCourseName(str(body.get("courseName")));
         apply.setCourseType(str(body.get("courseType")) == null ? "14" : str(body.get("courseType")));
         apply.setApplyReason(str(body.get("applyReason")));
         apply.setCredit(new BigDecimal(str(body.get("credit"))));
         apply.setHours(body.get("hours") == null ? 32 : Integer.valueOf(str(body.get("hours"))));
-        apply.setCollegeOpinion(str(body.get("collegeOpinion")));
         apply.setAuditStatus("0");
         apply.setApplyTime(LocalDateTime.now());
         if (courseMapper.selectCount(Wrappers.<Course>lambdaQuery()
@@ -180,6 +216,35 @@ public class CourseController {
         return Result.ok();
     }
 
+    /** 学院初审：填写学院意见，通过后转教务处待审（P1-12） */
+    @PostMapping("/new-course-applies/{id}/college-audit")
+    @RequirePerm("P21")
+    public Result<Void> collegeAudit(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        NewCourseApply apply = applyMapper.selectById(id);
+        if (apply == null) {
+            throw new BizException("申报记录不存在");
+        }
+        if (!"0".equals(apply.getAuditStatus())) {
+            throw new BizException("该申报不在学院待审状态");
+        }
+        LoginUser user = UserContext.require();
+        String opinion = str(body.get("opinion"));
+        if (opinion == null || opinion.isBlank()) {
+            throw new BizException("请填写学院审核意见");
+        }
+        NewCourseApply update = new NewCourseApply();
+        update.setApplyId(id);
+        update.setCollegeOpinion(opinion);
+        update.setAuditStatus("1".equals(str(body.get("pass"))) ? "3" : "2");
+        update.setAuditTime(LocalDateTime.now());
+        applyMapper.updateById(update);
+        auditService.record("04", "new_course_apply:" + id, Map.of("auditStatus", "0"),
+                Map.of("auditStatus", update.getAuditStatus(), "collegeOpinion", opinion,
+                        "collegeId", user.getCollegeId() == null ? "" : user.getCollegeId()));
+        return Result.ok();
+    }
+
+    /** 教务处终审：通过后生成课程号入库（P1-12） */
     @PostMapping("/new-course-applies/{id}/audit")
     @RequirePerm("P07")
     public Result<Void> audit(@PathVariable String id, @RequestBody Map<String, Object> body) {
@@ -187,8 +252,8 @@ public class CourseController {
         if (apply == null) {
             throw new BizException("申报记录不存在");
         }
-        if (!"0".equals(apply.getAuditStatus())) {
-            throw new BizException("该申报已处理");
+        if (!"3".equals(apply.getAuditStatus())) {
+            throw new BizException("该申报尚未通过学院初审或已处理");
         }
         String pass = str(body.get("pass"));
         String opinion = str(body.get("opinion"));

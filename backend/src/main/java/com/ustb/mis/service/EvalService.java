@@ -232,7 +232,7 @@ public class EvalService {
         if (plan == null) {
             throw new BizException("评教方案不存在");
         }
-        List<Map<String, Object>> records = viewMapper.listEvalRecords(planId, null);
+        List<Map<String, Object>> records = visibleRecords(plan, viewMapper.listEvalRecords(planId, null));
         Map<String, List<Map<String, Object>>> byTc = new LinkedHashMap<>();
         for (Map<String, Object> row : records) {
             byTc.computeIfAbsent(str(row.get("tcId")), k -> new ArrayList<>()).add(row);
@@ -299,7 +299,46 @@ public class EvalService {
     }
 
     public List<Map<String, Object>> records(String planId, String tcId) {
-        return viewMapper.listEvalRecords(planId, tcId);
+        EvalPlan plan = planMapper.selectById(planId);
+        return visibleRecords(plan, viewMapper.listEvalRecords(planId, tcId));
+    }
+
+    /**
+     * 数据范围过滤（P1-09）：全校数据范围可见全部；教师仅本人教学班；学院教务员仅本学院。
+     */
+    private List<Map<String, Object>> visibleRecords(EvalPlan plan, List<Map<String, Object>> rows) {
+        LoginUser user = UserContext.get();
+        if (user == null || "1".equals(user.getDataScope())) {
+            return rows;
+        }
+        if (plan == null) {
+            return List.of();
+        }
+        List<TeachingClass> tcs = tcMapper.selectList(Wrappers.<TeachingClass>lambdaQuery()
+                .eq(TeachingClass::getTerm, plan.getTerm()));
+        Map<String, TeachingClass> tcMap = new HashMap<>();
+        for (TeachingClass tc : tcs) {
+            tcMap.put(tc.getTcId(), tc);
+        }
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            TeachingClass tc = tcMap.get(str(row.get("tcId")));
+            if (tc == null) {
+                continue;
+            }
+            boolean visible;
+            if (user.getTeacherId() != null && "3".equals(user.getDataScope())) {
+                visible = user.getTeacherId().equals(tc.getTeacherId());
+            } else if ("2".equals(user.getDataScope()) && user.getCollegeId() != null) {
+                visible = user.getCollegeId().equals(str(row.get("collegeId")));
+            } else {
+                visible = true;
+            }
+            if (visible) {
+                filtered.add(row);
+            }
+        }
+        return filtered;
     }
 
     private Map<String, Double> weights(String json) {
