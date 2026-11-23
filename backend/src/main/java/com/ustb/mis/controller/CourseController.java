@@ -7,11 +7,13 @@ import com.ustb.mis.entity.Course;
 import com.ustb.mis.entity.NewCourseApply;
 import com.ustb.mis.entity.ProgramCourse;
 import com.ustb.mis.entity.ScheduleResult;
+import com.ustb.mis.entity.SysUser;
 import com.ustb.mis.entity.TeachingClass;
 import com.ustb.mis.mapper.CourseMapper;
 import com.ustb.mis.mapper.NewCourseApplyMapper;
 import com.ustb.mis.mapper.ProgramCourseMapper;
 import com.ustb.mis.mapper.ScheduleResultMapper;
+import com.ustb.mis.mapper.SysUserMapper;
 import com.ustb.mis.mapper.TeachingClassMapper;
 import com.ustb.mis.mapper.ViewMapper;
 import com.ustb.mis.security.LoginUser;
@@ -47,19 +49,22 @@ public class CourseController {
     private final TeachingClassMapper tcMapper;
     private final ScheduleResultMapper schedMapper;
     private final ViewMapper viewMapper;
+    private final SysUserMapper sysUserMapper;
     private final CodeService codeService;
     private final AuditService auditService;
 
     public CourseController(CourseMapper courseMapper, NewCourseApplyMapper applyMapper,
                             ProgramCourseMapper programCourseMapper, TeachingClassMapper tcMapper,
                             ScheduleResultMapper schedMapper, ViewMapper viewMapper,
-                            CodeService codeService, AuditService auditService) {
+                            SysUserMapper sysUserMapper, CodeService codeService,
+                            AuditService auditService) {
         this.courseMapper = courseMapper;
         this.applyMapper = applyMapper;
         this.programCourseMapper = programCourseMapper;
         this.tcMapper = tcMapper;
         this.schedMapper = schedMapper;
         this.viewMapper = viewMapper;
+        this.sysUserMapper = sysUserMapper;
         this.codeService = codeService;
         this.auditService = auditService;
     }
@@ -169,43 +174,74 @@ public class CourseController {
 
     // ---------------- 新增课程申报（教师申报 → 学院初审 → 教务处终审） ----------------
 
+    /**
+     * 申报列表：mine=1 只看本人；学院教务（数据范围 2）默认可看本学院教师申报与下发到本学院的通识课程。
+     */
     @GetMapping("/new-course-applies")
     @RequirePerm({"P06", "P07", "P21", "P05"})
     public Result<List<Map<String, Object>>> applies(@RequestParam(required = false) String status,
                                                      @RequestParam(required = false) String mine) {
         LoginUser user = UserContext.require();
-        String applyUser = null;
-        if ("1".equals(mine)) {
-            if (user.getTeacherId() == null) {
-                return Result.ok(List.of());
-            }
-            applyUser = user.getTeacherId();
-        }
-        List<Map<String, Object>> rows = viewMapper.listNewCourseApplies(status, applyUser);
+        String applyUser = "1".equals(mine) ? user.getUserId() : null;
+        String collegeId = null;
         if ("2".equals(user.getDataScope()) && user.getCollegeId() != null) {
-            rows = rows.stream()
-                    .filter(r -> user.getCollegeId().equals(String.valueOf(r.get("collegeId"))))
-                    .toList();
+            collegeId = user.getCollegeId();
         }
-        return Result.ok(new ArrayList<>(rows));
+        return Result.ok(new ArrayList<>(viewMapper.listNewCourseApplies(status, applyUser, collegeId)));
     }
 
+    /**
+     * 课程申报：教师限素质拓展（17）；学院教务限专业必修（13）/专业选修（14）；
+     * 教务处限通识（15），并须指定下发学院，由学院教务补充后再交教务处审核。
+     */
     @PostMapping("/new-course-applies")
-    @RequirePerm("P06")
+    @RequirePerm({"P06", "P21", "P07"})
     public Result<Void> apply(@RequestBody Map<String, Object> body) {
         LoginUser user = UserContext.require();
-        if (user.getTeacherId() == null) {
-            throw new BizException("仅教师可申报新增课程");
+        String courseType = str(body.get("courseType"));
+        if (courseType == null || courseType.isBlank()) {
+            courseType = "17";
+        }
+        boolean schoolLevel = user.hasPerm("P07");
+        boolean collegeLevel = !schoolLevel && user.hasPerm("P21");
+        if (schoolLevel) {
+            if (!"15".equals(courseType)) {
+                throw new BizException("教务处仅可申报通识课程（15）");
+            }
+        } else if (collegeLevel) {
+            if (!"13".equals(courseType) && !"14".equals(courseType)) {
+                throw new BizException("学院教务仅可申报专业必修（13）或专业选修（14）课程");
+            }
+        } else {
+            if (user.getTeacherId() == null) {
+                throw new BizException("仅教师可申报新增课程");
+            }
+            if (!"17".equals(courseType)) {
+                throw new BizException("教师仅可申报素质拓展课程（17）");
+            }
         }
         NewCourseApply apply = new NewCourseApply();
         apply.setApplyId(codeService.nextBillId("NC", "new_course_apply", "apply_id"));
-        apply.setApplyUser(user.getTeacherId());
+        apply.setApplyUser(user.getUserId());
         apply.setCourseName(str(body.get("courseName")));
-        apply.setCourseType(str(body.get("courseType")) == null ? "14" : str(body.get("courseType")));
+        apply.setCourseType(courseType);
         apply.setApplyReason(str(body.get("applyReason")));
         apply.setCredit(new BigDecimal(str(body.get("credit"))));
         apply.setHours(body.get("hours") == null ? 32 : Integer.valueOf(str(body.get("hours"))));
-        apply.setAuditStatus("0");
+        if (schoolLevel) {
+            String dispatch = str(body.get("dispatchCollege"));
+            if (dispatch == null || dispatch.isBlank()) {
+                throw new BizException("通识课程申报须指定下发学院");
+            }
+            apply.setDispatchCollege(dispatch);
+            // 教务处申报的通识课程先下发学院补充，补充后由教务处审核
+            apply.setAuditStatus("4");
+        } else if (collegeLevel) {
+            // 学院教务自报课程直接进入教务处待审
+            apply.setAuditStatus("3");
+        } else {
+            apply.setAuditStatus("0");
+        }
         apply.setApplyTime(LocalDateTime.now());
         if (courseMapper.selectCount(Wrappers.<Course>lambdaQuery()
                 .eq(Course::getCourseName, apply.getCourseName())) > 0) {
@@ -228,6 +264,7 @@ public class CourseController {
             throw new BizException("该申报不在学院待审状态");
         }
         LoginUser user = UserContext.require();
+        requireOwnCollege(user, apply);
         String opinion = str(body.get("opinion"));
         if (opinion == null || opinion.isBlank()) {
             throw new BizException("请填写学院审核意见");
@@ -242,6 +279,60 @@ public class CourseController {
                 Map.of("auditStatus", update.getAuditStatus(), "collegeOpinion", opinion,
                         "collegeId", user.getCollegeId() == null ? "" : user.getCollegeId()));
         return Result.ok();
+    }
+
+    /** 学院补充：教务处下发的通识课程，由下发学院教务补充学分/学时/理由后提交教务处审核 */
+    @PostMapping("/new-course-applies/{id}/supplement")
+    @RequirePerm("P21")
+    public Result<Void> supplement(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        NewCourseApply apply = applyMapper.selectById(id);
+        if (apply == null) {
+            throw new BizException("申报记录不存在");
+        }
+        if (!"4".equals(apply.getAuditStatus())) {
+            throw new BizException("该申报不在待学院补充状态");
+        }
+        LoginUser user = UserContext.require();
+        if (!"1".equals(user.getDataScope())) {
+            requireOwnCollege(user, apply);
+            if (apply.getDispatchCollege() != null
+                    && !apply.getDispatchCollege().equals(user.getCollegeId())) {
+                throw new BizException(403, "仅下发学院可补充该通识课程");
+            }
+        }
+        NewCourseApply update = new NewCourseApply();
+        update.setApplyId(id);
+        if (body.get("credit") != null) {
+            update.setCredit(new BigDecimal(str(body.get("credit"))));
+        }
+        if (body.get("hours") != null) {
+            update.setHours(Integer.valueOf(str(body.get("hours"))));
+        }
+        if (body.get("applyReason") != null) {
+            update.setApplyReason(str(body.get("applyReason")));
+        }
+        String opinion = str(body.get("opinion"));
+        update.setCollegeOpinion(opinion == null || opinion.isBlank() ? "学院已补充培养要求" : opinion);
+        update.setAuditStatus("3");
+        update.setAuditTime(LocalDateTime.now());
+        applyMapper.updateById(update);
+        auditService.record("04", "new_course_apply:" + id, Map.of("auditStatus", "4"),
+                Map.of("auditStatus", "3", "collegeOpinion", update.getCollegeOpinion()));
+        return Result.ok();
+    }
+
+    /** 学院教务只能处理本学院（或下发到本学院）的申报 */
+    private void requireOwnCollege(LoginUser user, NewCourseApply apply) {
+        if (!"2".equals(user.getDataScope()) || user.getCollegeId() == null) {
+            return;
+        }
+        String college = user.getCollegeId();
+        boolean dispatched = college.equals(apply.getDispatchCollege());
+        SysUser applicant = apply.getApplyUser() == null ? null : sysUserMapper.selectById(apply.getApplyUser());
+        boolean sameCollege = applicant != null && college.equals(applicant.getCollegeId());
+        if (!dispatched && !sameCollege) {
+            throw new BizException(403, "只能处理本学院的课程申报");
+        }
     }
 
     /** 教务处终审：通过后生成课程号入库（P1-12） */

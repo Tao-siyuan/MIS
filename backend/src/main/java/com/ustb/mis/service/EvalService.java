@@ -138,6 +138,10 @@ public class EvalService {
         if (plan == null) {
             throw new BizException("评教方案不存在");
         }
+        // 教师不参与学生评教，仅可查看教务处反馈的最终结果（教师端修改意见第 6 条）
+        if (user.getTeacherId() != null) {
+            return List.of();
+        }
         List<TeachingClass> tcs = tcMapper.selectList(Wrappers.<TeachingClass>lambdaQuery()
                 .eq(TeachingClass::getTerm, plan.getTerm()));
         List<Map<String, Object>> all = viewMapper.listTeachingClasses(plan.getTerm(), null, null, null, null, null);
@@ -172,6 +176,9 @@ public class EvalService {
     @Transactional
     public Map<String, Object> submit(Map<String, Object> body) {
         LoginUser user = UserContext.require();
+        if (user.getTeacherId() != null) {
+            throw new BizException(403, "教师不参与学生评教，只能查看教务处反馈的评教结果");
+        }
         String planId = str(body.get("planId"));
         String tcId = str(body.get("tcId"));
         EvalPlan plan = planMapper.selectById(planId);
@@ -231,6 +238,11 @@ public class EvalService {
         EvalPlan plan = planMapper.selectById(planId);
         if (plan == null) {
             throw new BizException("评教方案不存在");
+        }
+        // 教师只能看到评教结束（教务处汇总返回）后的结果，评教进行中不开放（教师端修改意见第 6 条）
+        LoginUser current = UserContext.get();
+        if (current != null && current.getTeacherId() != null && !"2".equals(plan.getPlanStatus())) {
+            throw new BizException(403, "评教尚未结束，结果由教务处在评教结束后反馈");
         }
         List<Map<String, Object>> records = visibleRecords(plan, viewMapper.listEvalRecords(planId, null));
         Map<String, List<Map<String, Object>>> byTc = new LinkedHashMap<>();
@@ -299,6 +311,11 @@ public class EvalService {
     }
 
     public List<Map<String, Object>> records(String planId, String tcId) {
+        LoginUser current = UserContext.get();
+        // 学生原始评教记录不向教师开放，教师仅看汇总结果（教师端修改意见第 6 条）
+        if (current != null && current.getTeacherId() != null) {
+            return List.of();
+        }
         EvalPlan plan = planMapper.selectById(planId);
         return visibleRecords(plan, viewMapper.listEvalRecords(planId, tcId));
     }

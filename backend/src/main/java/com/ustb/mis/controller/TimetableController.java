@@ -2,6 +2,12 @@ package com.ustb.mis.controller;
 
 import com.ustb.mis.common.BizException;
 import com.ustb.mis.common.Result;
+import com.ustb.mis.entity.ClassInfo;
+import com.ustb.mis.entity.Major;
+import com.ustb.mis.entity.Teacher;
+import com.ustb.mis.mapper.ClassInfoMapper;
+import com.ustb.mis.mapper.MajorMapper;
+import com.ustb.mis.mapper.TeacherMapper;
 import com.ustb.mis.mapper.ViewMapper;
 import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.RequirePerm;
@@ -25,11 +31,19 @@ import java.util.Map;
 public class TimetableController {
 
     private final ViewMapper viewMapper;
+    private final ClassInfoMapper classInfoMapper;
+    private final MajorMapper majorMapper;
+    private final TeacherMapper teacherMapper;
     private final JdbcTemplate jdbc;
     private final AuditService auditService;
 
-    public TimetableController(ViewMapper viewMapper, JdbcTemplate jdbc, AuditService auditService) {
+    public TimetableController(ViewMapper viewMapper, ClassInfoMapper classInfoMapper,
+                               MajorMapper majorMapper, TeacherMapper teacherMapper,
+                               JdbcTemplate jdbc, AuditService auditService) {
         this.viewMapper = viewMapper;
+        this.classInfoMapper = classInfoMapper;
+        this.majorMapper = majorMapper;
+        this.teacherMapper = teacherMapper;
         this.jdbc = jdbc;
         this.auditService = auditService;
     }
@@ -80,21 +94,36 @@ public class TimetableController {
         String teacherId = null;
         String classId = null;
         String roomId = null;
+        String openCollege = null;
         if ("2".equals(user.getDataScope())) {
+            // 学院教务仅可查询本学院班级课表，或本学院开课课程的课表（学院教务修改意见第 4 条）
             if ("room".equals(view)) {
                 roomId = key;
+                openCollege = user.getCollegeId();
             } else if ("class".equals(view)) {
                 classId = key;
+                requireClassInCollege(classId, user.getCollegeId());
             } else if ("teacher".equals(view)) {
                 teacherId = key == null || key.isBlank() ? user.getTeacherId() : key;
+                requireTeacherInCollege(teacherId, user.getCollegeId());
             } else {
                 teacherId = user.getTeacherId();
-                if (teacherId == null) {
+                if (teacherId != null) {
+                    requireTeacherInCollege(teacherId, user.getCollegeId());
+                } else {
                     classId = key;
+                    requireClassInCollege(classId, user.getCollegeId());
                 }
             }
         } else if ("3".equals(user.getDataScope())) {
             if (user.getTeacherId() != null) {
+                // 教师只能查询本人课表，禁止按班级/教室/他人教师查询（教师端修改意见第 5 条）
+                if (!"self".equals(view) && !"teacher".equals(view)) {
+                    throw new BizException(403, "教师仅可查询本人课表");
+                }
+                if (key != null && !key.isBlank() && !key.equals(user.getTeacherId())) {
+                    throw new BizException(403, "教师仅可查询本人课表");
+                }
                 teacherId = user.getTeacherId();
             } else {
                 classId = user.getClassId();
@@ -115,7 +144,7 @@ public class TimetableController {
         if (teacherId == null && classId == null && roomId == null) {
             throw new BizException("请指定查询对象（教师/班级/教室）");
         }
-        List<Map<String, Object>> rows = viewMapper.timetable(term, teacherId, classId, roomId);
+        List<Map<String, Object>> rows = viewMapper.timetable(term, teacherId, classId, roomId, openCollege);
         Map<String, Object> data = new HashMap<>();
         data.put("term", term);
         data.put("view", view);
@@ -127,5 +156,34 @@ public class TimetableController {
             auditService.record("06", "v_full_schedule:" + term, null, Map.of("view", view, "key", String.valueOf(key)));
         }
         return Result.ok(data);
+    }
+
+    /** 班级所属专业须属于querying学院 */
+    private void requireClassInCollege(String classId, String collegeId) {
+        if (classId == null || classId.isBlank() || collegeId == null) {
+            return;
+        }
+        ClassInfo ci = classInfoMapper.selectById(classId);
+        if (ci == null) {
+            throw new BizException("班级不存在");
+        }
+        Major major = ci.getMajorId() == null ? null : majorMapper.selectById(ci.getMajorId());
+        if (major == null || !collegeId.equals(major.getCollegeId())) {
+            throw new BizException(403, "学院教务仅可查看本学院班级的课表");
+        }
+    }
+
+    /** 教师须属于 querying 学院 */
+    private void requireTeacherInCollege(String teacherId, String collegeId) {
+        if (teacherId == null || teacherId.isBlank() || collegeId == null) {
+            return;
+        }
+        Teacher teacher = teacherMapper.selectById(teacherId);
+        if (teacher == null) {
+            throw new BizException("教师不存在");
+        }
+        if (!collegeId.equals(teacher.getCollegeId())) {
+            throw new BizException(403, "学院教务仅可查看本学院教师的课表");
+        }
     }
 }

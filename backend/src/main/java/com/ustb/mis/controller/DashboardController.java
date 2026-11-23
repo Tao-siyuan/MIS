@@ -3,14 +3,17 @@ package com.ustb.mis.controller;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.ustb.mis.common.Result;
 import com.ustb.mis.entity.AuditLog;
+import com.ustb.mis.entity.ClassInfo;
 import com.ustb.mis.entity.College;
 import com.ustb.mis.entity.Course;
 import com.ustb.mis.entity.DualEnroll;
 import com.ustb.mis.entity.Major;
 import com.ustb.mis.entity.MajorProgram;
 import com.ustb.mis.entity.ScheduleConflict;
+import com.ustb.mis.entity.Teacher;
 import com.ustb.mis.entity.TeachingClass;
 import com.ustb.mis.mapper.AuditLogMapper;
+import com.ustb.mis.mapper.ClassInfoMapper;
 import com.ustb.mis.mapper.CollegeMapper;
 import com.ustb.mis.mapper.CourseMapper;
 import com.ustb.mis.mapper.DualEnrollMapper;
@@ -18,6 +21,7 @@ import com.ustb.mis.mapper.MajorMapper;
 import com.ustb.mis.mapper.MajorProgramMapper;
 import com.ustb.mis.mapper.NewCourseApplyMapper;
 import com.ustb.mis.mapper.ScheduleConflictMapper;
+import com.ustb.mis.mapper.TeacherMapper;
 import com.ustb.mis.mapper.TeachingClassMapper;
 import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.UserContext;
@@ -46,11 +50,14 @@ public class DashboardController {
     private final NewCourseApplyMapper applyMapper;
     private final AuditLogMapper logMapper;
     private final DualEnrollMapper dualEnrollMapper;
+    private final ClassInfoMapper classInfoMapper;
+    private final TeacherMapper teacherMapper;
 
     public DashboardController(CollegeMapper collegeMapper, MajorMapper majorMapper, CourseMapper courseMapper,
                                MajorProgramMapper programMapper, TeachingClassMapper tcMapper,
                                ScheduleConflictMapper conflictMapper, NewCourseApplyMapper applyMapper,
-                               AuditLogMapper logMapper, DualEnrollMapper dualEnrollMapper) {
+                               AuditLogMapper logMapper, DualEnrollMapper dualEnrollMapper,
+                               ClassInfoMapper classInfoMapper, TeacherMapper teacherMapper) {
         this.collegeMapper = collegeMapper;
         this.majorMapper = majorMapper;
         this.courseMapper = courseMapper;
@@ -60,6 +67,8 @@ public class DashboardController {
         this.applyMapper = applyMapper;
         this.logMapper = logMapper;
         this.dualEnrollMapper = dualEnrollMapper;
+        this.classInfoMapper = classInfoMapper;
+        this.teacherMapper = teacherMapper;
     }
 
     @GetMapping("/overview")
@@ -128,6 +137,50 @@ public class DashboardController {
         }
         data.put("todo", todo);
         data.put("welcome", user.getRealName() + "（" + user.getRoleName() + "）");
+        data.put("profile", profileOf(user));
         return Result.ok(data);
+    }
+
+    /** 个人信息卡：姓名、学号/工号、学院、专业/系、班级等（教师端与学生端工作台使用） */
+    private Map<String, Object> profileOf(LoginUser user) {
+        Map<String, Object> profile = new HashMap<>();
+        profile.put("userId", user.getUserId());
+        profile.put("realName", user.getRealName());
+        profile.put("roleName", user.getRoleName());
+        profile.put("identity", user.getTeacherId() != null ? "教师"
+                : user.getClassId() != null ? "学生" : "职工");
+        profile.put("collegeId", user.getCollegeId());
+        profile.put("majorId", user.getMajorId());
+        profile.put("classId", user.getClassId());
+        profile.put("teacherId", user.getTeacherId());
+        if (user.getCollegeId() != null) {
+            College college = collegeMapper.selectById(user.getCollegeId());
+            profile.put("collegeName", college == null ? user.getCollegeId() : college.getCollegeName());
+        }
+        if (user.getMajorId() != null) {
+            Major major = majorMapper.selectById(user.getMajorId());
+            profile.put("majorName", major == null ? user.getMajorId() : major.getMajorName());
+        }
+        if (user.getClassId() != null) {
+            ClassInfo info = classInfoMapper.selectById(user.getClassId());
+            profile.put("className", info == null ? user.getClassId() : info.getClassName());
+            if (info != null && user.getMajorId() == null) {
+                Major major = majorMapper.selectById(info.getMajorId());
+                profile.put("majorId", info.getMajorId());
+                profile.put("majorName", major == null ? info.getMajorId() : major.getMajorName());
+            }
+        }
+        if (user.getTeacherId() != null) {
+            Teacher teacher = teacherMapper.selectById(user.getTeacherId());
+            if (teacher != null) {
+                profile.put("teacherName", teacher.getTeacherName());
+                profile.put("title", teacher.getTitle());
+                if (user.getCollegeId() == null) {
+                    College college = collegeMapper.selectById(teacher.getCollegeId());
+                    profile.put("collegeName", college == null ? teacher.getCollegeId() : college.getCollegeName());
+                }
+            }
+        }
+        return profile;
     }
 }

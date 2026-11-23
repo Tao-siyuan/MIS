@@ -50,9 +50,10 @@
             <el-tag size="small" :type="statusType(row.tcStatus)">{{ statusName(row.tcStatus) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="270" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="canManageRoster(row)" link type="primary" size="small" @click="openRoster(row)">学生名单</el-button>
             <el-button
               v-if="canMaintain && row.tcStatus === '0'"
               link
@@ -115,7 +116,7 @@
           :closable="false"
           show-icon
           style="margin-bottom: 12px"
-          title="教师仅可维护本人教学班的偏好节次与不可用时间，其余字段由教务处/学院教务员维护。"
+          title="教师仅可维护本人教学班的偏好节次、不可用时间与学生名单，其余字段由教务处/学院教务员维护。"
         />
         <el-form-item label="学期" required>
           <el-input v-model="form.term" :disabled="!form.isNew" />
@@ -132,7 +133,7 @@
         </el-form-item>
         <el-form-item label="任课教师">
           <el-select v-model="form.teacherId" clearable filterable style="width: 100%">
-            <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.teacherId}）`" :value="t.teacherId" />
+            <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.userId || t.teacherId}）`" :value="t.teacherId" />
           </el-select>
         </el-form-item>
         <el-form-item label="面向班级">
@@ -202,6 +203,45 @@
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 学生名单：任课教师可在本人教学班内添加/移除学生 -->
+    <el-dialog v-model="rosterDialog" :title="`学生名单 · ${rosterTc?.courseName || ''}`" width="640px">
+      <el-form inline style="margin-bottom: 8px" @submit.prevent>
+        <el-form-item label="学号">
+          <el-input
+            v-model="addForm.stuId"
+            placeholder="如 U202341224"
+            clearable
+            style="width: 170px"
+            @blur="fillStuName"
+          />
+        </el-form-item>
+        <el-form-item label="姓名">
+          <el-input v-model="addForm.stuName" placeholder="用于核对" clearable style="width: 130px" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="adding" :disabled="!addForm.stuId.trim()" @click="addStudent">
+            添加学生
+          </el-button>
+        </el-form-item>
+        <el-form-item>
+          <span class="muted">名单 {{ roster.length }} 人 · 容量 {{ rosterTc?.capacity ?? '-' }}</span>
+        </el-form-item>
+      </el-form>
+      <el-table :data="roster" border size="small" max-height="360">
+        <el-table-column prop="stuId" label="学号" width="130" />
+        <el-table-column prop="stuName" label="姓名" width="110" />
+        <el-table-column prop="className" label="班级" />
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button link type="danger" size="small" @click="removeStudent(row)">移除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="rosterDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -230,6 +270,15 @@ const batch = reactive({ term: '2026-2027-1', programType: '1' })
 const editDialog = ref(false)
 const form = reactive({})
 const classIds = ref([])
+const rosterDialog = ref(false)
+const rosterTc = ref(null)
+const roster = ref([])
+const addForm = reactive({ stuId: '', stuName: '' })
+const adding = ref(false)
+
+/** 学生名单维护：教务处/学院教务员（P19）或本人任教的教学班 */
+const canManageRoster = (row) =>
+  canMaintain.value || (!!user.user?.teacherId && user.user.teacherId === row.teacherId)
 
 const grades = computed(() => {
   const set = new Set(classList.value.map((c) => c.grade))
@@ -327,6 +376,56 @@ async function save() {
   await api.saveTeachingClass(payload)
   ElMessage.success('保存成功')
   editDialog.value = false
+  await load()
+}
+
+async function openRoster(row) {
+  rosterTc.value = row
+  Object.assign(addForm, { stuId: '', stuName: '' })
+  roster.value = await api.tcStudents(row.tcId)
+  rosterDialog.value = true
+}
+
+/** 输入学号后自动带出姓名，便于核对 */
+async function fillStuName() {
+  const stuId = addForm.stuId.trim()
+  if (!stuId || !rosterTc.value) return
+  try {
+    const list = await api.tcStudentCandidates(rosterTc.value.tcId, { keyword: stuId })
+    const hit = list.find((s) => s.stuId === stuId)
+    if (hit) addForm.stuName = hit.stuName
+  } catch (e) {
+    // 检索失败时保留手动输入
+  }
+}
+
+async function addStudent() {
+  const stuId = addForm.stuId.trim()
+  if (!stuId) {
+    ElMessage.warning('请输入学生学号')
+    return
+  }
+  if (!addForm.stuName.trim()) {
+    ElMessage.warning('请输入学生姓名')
+    return
+  }
+  adding.value = true
+  try {
+    await api.addTcStudent(rosterTc.value.tcId, { stuId, stuName: addForm.stuName.trim() })
+    ElMessage.success(`已将 ${addForm.stuName.trim()}（${stuId}）加入教学班`)
+    Object.assign(addForm, { stuId: '', stuName: '' })
+    roster.value = await api.tcStudents(rosterTc.value.tcId)
+    await load()
+  } finally {
+    adding.value = false
+  }
+}
+
+async function removeStudent(row) {
+  await ElMessageBox.confirm(`确认将 ${row.stuName}（${row.stuId}）移出教学班？`, '移除学生', { type: 'warning' })
+  await api.removeTcStudent(rosterTc.value.tcId, row.stuId)
+  ElMessage.success('已移除')
+  roster.value = await api.tcStudents(rosterTc.value.tcId)
   await load()
 }
 

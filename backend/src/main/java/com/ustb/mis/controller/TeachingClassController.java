@@ -67,6 +67,31 @@ public class TeachingClassController {
         return Result.ok();
     }
 
+    // ---------------- 教学班学生名单 ----------------
+
+    @GetMapping("/{tcId}/students")
+    public Result<List<Map<String, Object>>> students(@PathVariable String tcId) {
+        return Result.ok(tcService.students(tcId));
+    }
+
+    @GetMapping("/{tcId}/student-candidates")
+    public Result<List<Map<String, Object>>> studentCandidates(@PathVariable String tcId,
+                                                               @RequestParam(required = false) String keyword) {
+        return Result.ok(tcService.studentCandidates(tcId, keyword));
+    }
+
+    @PostMapping("/{tcId}/students")
+    public Result<Void> addStudent(@PathVariable String tcId, @RequestBody Map<String, Object> body) {
+        tcService.addStudent(tcId, str(body.get("stuId")), str(body.get("stuName")));
+        return Result.ok();
+    }
+
+    @DeleteMapping("/{tcId}/students/{stuId}")
+    public Result<Void> removeStudent(@PathVariable String tcId, @PathVariable String stuId) {
+        tcService.removeStudent(tcId, stuId);
+        return Result.ok();
+    }
+
     private String str(Object o) {
         return o == null ? null : String.valueOf(o);
     }

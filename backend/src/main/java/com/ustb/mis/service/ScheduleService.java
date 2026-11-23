@@ -617,7 +617,8 @@ public class ScheduleService {
         return list;
     }
 
-    private boolean roomTypeMatch(String teachType, String roomType) {
+    /** 教学形式与教室类型是否匹配（调课选教室时复用） */
+    public boolean roomTypeMatch(String teachType, String roomType) {
         if ("2".equals(teachType)) {
             return "4".equals(roomType);
         }

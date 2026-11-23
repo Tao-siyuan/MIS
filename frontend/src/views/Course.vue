@@ -145,7 +145,8 @@ const types = [
   { value: '13', label: '13 专业必修' },
   { value: '14', label: '14 专业选修' },
   { value: '15', label: '15 通识' },
-  { value: '16', label: '16 实践教学' }
+  { value: '16', label: '16 实践教学' },
+  { value: '17', label: '17 素质拓展' }
 ]
 const typeName = (t) => (types.find((x) => x.value === t)?.label || t).replace(/^\d+\s/, '')
 

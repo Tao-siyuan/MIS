@@ -122,22 +122,29 @@ public interface ViewMapper {
 
     @Select("""
             <script>
-            SELECT a.apply_id AS applyId, a.apply_user AS applyUser, t.teacher_name AS teacherName,
-                   t.college_id AS collegeId, a.course_name AS courseName, a.course_type AS courseType,
-                   a.apply_reason AS applyReason, a.credit AS credit, a.hours AS hours,
+            SELECT a.apply_id AS applyId, a.apply_user AS applyUser,
+                   COALESCE(u.real_name, t.teacher_name) AS teacherName,
+                   u.college_id AS collegeId, a.course_name AS courseName, a.course_type AS courseType,
+                   a.dispatch_college AS dispatchCollege, a.apply_reason AS applyReason,
+                   a.credit AS credit, a.hours AS hours,
                    a.college_opinion AS collegeOpinion, a.audit_status AS auditStatus,
                    a.course_id AS courseId, a.audit_opinion AS auditOpinion,
                    a.apply_time AS applyTime, a.audit_time AS auditTime
             FROM new_course_apply a
-            LEFT JOIN teacher t ON t.teacher_id = a.apply_user
+            LEFT JOIN sys_user u ON u.user_id = a.apply_user
+            LEFT JOIN teacher t ON t.teacher_id = u.teacher_id
             WHERE 1 = 1
             <if test="status != null and status != ''"> AND a.audit_status = #{status}</if>
             <if test="applyUser != null and applyUser != ''"> AND a.apply_user = #{applyUser}</if>
+            <if test="collegeId != null and collegeId != ''">
+                AND (u.college_id = #{collegeId} OR a.dispatch_college = #{collegeId})
+            </if>
             ORDER BY a.apply_time DESC
             </script>
             """)
     List<Map<String, Object>> listNewCourseApplies(@Param("status") String status,
-                                                   @Param("applyUser") String applyUser);
+                                                   @Param("applyUser") String applyUser,
+                                                   @Param("collegeId") String collegeId);
 
     @Select("""
             <script>
@@ -221,7 +228,8 @@ public interface ViewMapper {
     @Select("""
             <script>
             SELECT a.adjust_id AS adjustId, a.sched_id AS schedId, sr.tc_id AS tcId,
-                   c.course_name AS courseName, t.teacher_name AS teacherName, tc.class_ids AS classIds,
+                   c.course_name AS courseName, c.open_college AS collegeId, tc.teacher_id AS teacherId,
+                   t.teacher_name AS teacherName, tc.class_ids AS classIds,
                    a.adjust_type AS adjustType, a.old_value AS oldValue, a.new_value AS newValue,
                    a.reason AS reason, a.effect_date AS effectDate, a.approve_status AS approveStatus,
                    a.approver AS approver, a.approve_opinion AS approveOpinion,
@@ -342,16 +350,19 @@ public interface ViewMapper {
                    v.end_slot AS endSlot, v.room_id AS roomId, v.room_name AS roomName,
                    v.room_type AS roomType, v.sched_status AS schedStatus, v.sched_id AS schedId
             FROM v_full_schedule v
+            JOIN course c ON c.course_id = v.course_id
             WHERE v.term = #{term}
               AND v.sched_status IN ('2', '3')
             <if test="teacherId != null and teacherId != ''"> AND v.teacher_id = #{teacherId}</if>
             <if test="classId != null and classId != ''"> AND v.class_ids LIKE CONCAT('%', #{classId}, '%')</if>
             <if test="roomId != null and roomId != ''"> AND v.room_id = #{roomId}</if>
+            <if test="openCollege != null and openCollege != ''"> AND c.open_college = #{openCollege}</if>
             ORDER BY v.week_day, v.start_slot
             </script>
             """)
     List<Map<String, Object>> timetable(@Param("term") String term,
-                                        @Param("teacherId") String teacherId,
-                                        @Param("classId") String classId,
-                                        @Param("roomId") String roomId);
+                                       @Param("teacherId") String teacherId,
+                                       @Param("classId") String classId,
+                                       @Param("roomId") String roomId,
+                                       @Param("openCollege") String openCollege);
 }

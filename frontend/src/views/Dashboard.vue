@@ -3,7 +3,28 @@
     <h2 class="page-title">工作台</h2>
     <p class="page-desc">{{ data.welcome }}，以下为专业设置与排课运行概览。</p>
 
-    <div class="stat-grid">
+    <!-- 教师端 / 学生端：以个人信息卡替代统计指标（教师端修改意见第 2 条） -->
+    <div v-if="showProfile" class="panel profile-panel">
+      <el-avatar :size="72" class="profile-avatar">{{ initial }}</el-avatar>
+      <div class="profile-body">
+        <div class="profile-name">
+          {{ profile.realName }}
+          <el-tag size="small" effect="plain">{{ profile.roleName }}</el-tag>
+          <span class="muted profile-photo">照片待上传</span>
+        </div>
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item :label="isStudent ? '学号' : '工号'">{{ profile.userId }}</el-descriptions-item>
+          <el-descriptions-item label="身份">{{ profile.identity }}</el-descriptions-item>
+          <el-descriptions-item label="学院">{{ profile.collegeName || '-' }}</el-descriptions-item>
+          <el-descriptions-item :label="isStudent ? '专业' : '职称'">
+            {{ isStudent ? profile.majorName || '-' : profile.title || '-' }}
+          </el-descriptions-item>
+          <el-descriptions-item v-if="isStudent" label="班级">{{ profile.className || '-' }}</el-descriptions-item>
+        </el-descriptions>
+      </div>
+    </div>
+
+    <div v-else class="stat-grid">
       <div class="stat-card">
         <div class="label">在办学院</div>
         <div class="value">{{ data.collegeCount || 0 }}<span class="unit">个</span></div>
@@ -46,19 +67,16 @@
           </div>
         </div>
 
-        <div v-if="isStudent" class="panel">
+        <!-- 教师端与学生端：今日日程（教师端修改意见第 1 条） -->
+        <div v-if="showSchedule" class="panel">
           <div class="panel-title">今日日程 · {{ todayLabel }}</div>
-          <el-empty
-            v-if="todayCourses.length === 0"
-            description="今天没有课程安排"
-            :image-size="70"
-          />
+          <el-empty v-if="todayCourses.length === 0" description="今天没有课程安排" :image-size="70" />
           <div v-for="(c, i) in todayCourses" :key="i" class="schedule-item">
             <div class="schedule-time">{{ c.startSlot }}-{{ c.endSlot }} 节</div>
             <div class="schedule-main">
               <div class="schedule-course">{{ c.courseName }}</div>
               <div class="muted">
-                {{ c.teacherName }} · {{ c.roomName }} · {{ c.weekRange }}
+                {{ c.teacherName }} · {{ c.roomName }} · {{ c.classIds }} · {{ c.weekRange }}
               </div>
             </div>
           </div>
@@ -100,9 +118,14 @@ const data = ref({})
 const todayCourses = ref([])
 const term = ref('')
 
-/** 仅系统管理员可在工作台查看最近操作，其余角色只保留待办（可去日志页按权限回溯） */
 const isAdmin = computed(() => user.isAdmin())
 const isStudent = computed(() => user.isStudent())
+const isTeacher = computed(() => user.isTeacher())
+/** 教师与学生工作台展示个人信息卡，教务/管理员仍展示统计指标 */
+const showProfile = computed(() => isStudent.value || isTeacher.value)
+const showSchedule = computed(() => isStudent.value || isTeacher.value)
+const profile = computed(() => data.value.profile || {})
+const initial = computed(() => (profile.value.realName || 'U').slice(0, 1))
 
 const dayNames = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
 const todayWeekday = computed(() => {
@@ -133,13 +156,44 @@ async function loadTodayCourses() {
 
 onMounted(async () => {
   data.value = await api.overview()
-  if (isStudent.value) {
+  if (showSchedule.value) {
     await loadTodayCourses()
   }
 })
 </script>
 
 <style scoped>
+.profile-panel {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.profile-avatar {
+  background: linear-gradient(135deg, #4b8bd6, #2b5c9b);
+  color: #fff;
+  font-size: 26px;
+  flex: none;
+}
+
+.profile-body {
+  flex: 1;
+}
+
+.profile-name {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-photo {
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .todo {
   display: flex;
   align-items: center;

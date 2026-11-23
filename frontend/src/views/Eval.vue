@@ -53,7 +53,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane label="我的评教" name="task">
+        <el-tab-pane v-if="canSubmit" label="我的评教" name="task">
           <div class="toolbar">
             <el-select v-model="taskPlanId" placeholder="选择评教方案" style="width: 260px" @change="loadTasks">
               <el-option
@@ -93,7 +93,7 @@
           <div class="toolbar">
             <el-select v-model="statsPlanId" placeholder="选择评教方案" style="width: 260px" @change="loadStats">
               <el-option
-                v-for="p in plans"
+                v-for="p in statsPlans"
                 :key="p.planId"
                 :label="`${p.planName}（${p.term}）`"
                 :value="p.planId"
@@ -246,6 +246,10 @@ const canManage = computed(() => user.hasPerm('P18'))
 const isTeacher = computed(() => !!user.user?.teacherId)
 /** 结果统计只对教务处与教师开放，学生仅能看到自己的评教任务（避免越权查看他人评价） */
 const canViewStats = computed(() => canManage.value || isTeacher.value)
+/** 只有学生参与评教，教师/教务不提交评教（教师端修改意见第 6 条） */
+const canSubmit = computed(() => !canManage.value && !isTeacher.value)
+/** 教师只能选择已结束的方案查看结果；教务处可选全部方案 */
+const statsPlans = computed(() => (isTeacher.value ? plans.value.filter((p) => p.planStatus === '2') : plans.value))
 const tab = ref(canManage.value ? 'plan' : isTeacher.value ? 'stats' : 'task')
 const plans = ref([])
 const tasks = ref([])
@@ -281,7 +285,7 @@ const percent = (v) => {
 async function loadPlans() {
   plans.value = await api.evalPlans()
   if (!taskPlanId.value) taskPlanId.value = plans.value.find((p) => p.planStatus === '1')?.planId || ''
-  if (!statsPlanId.value) statsPlanId.value = plans.value[0]?.planId || ''
+  if (!statsPlanId.value) statsPlanId.value = statsPlans.value[0]?.planId || ''
 }
 
 async function loadTasks() {

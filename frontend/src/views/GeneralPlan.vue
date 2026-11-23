@@ -98,7 +98,7 @@
         </el-form-item>
         <el-form-item label="拟任教师">
           <el-select v-model="form.teacherId" clearable filterable style="width: 100%">
-            <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.teacherId}）`" :value="t.teacherId" />
+            <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.userId || t.teacherId}）`" :value="t.teacherId" />
           </el-select>
         </el-form-item>
       </el-form>

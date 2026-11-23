@@ -7,6 +7,8 @@ import com.ustb.mis.entity.Course;
 import com.ustb.mis.entity.MajorProgram;
 import com.ustb.mis.entity.ProgramCourse;
 import com.ustb.mis.entity.ScheduleResult;
+import com.ustb.mis.entity.SysUser;
+import com.ustb.mis.entity.TcStudent;
 import com.ustb.mis.entity.Teacher;
 import com.ustb.mis.entity.TeachingClass;
 import com.ustb.mis.mapper.ClassInfoMapper;
@@ -14,6 +16,8 @@ import com.ustb.mis.mapper.CourseMapper;
 import com.ustb.mis.mapper.MajorProgramMapper;
 import com.ustb.mis.mapper.ProgramCourseMapper;
 import com.ustb.mis.mapper.ScheduleResultMapper;
+import com.ustb.mis.mapper.SysUserMapper;
+import com.ustb.mis.mapper.TcStudentMapper;
 import com.ustb.mis.mapper.TeacherMapper;
 import com.ustb.mis.mapper.TeachingClassMapper;
 import com.ustb.mis.mapper.ViewMapper;
@@ -22,6 +26,7 @@ import com.ustb.mis.security.UserContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,6 +47,8 @@ public class TeachingClassService {
     private final CourseMapper courseMapper;
     private final ScheduleResultMapper scheduleResultMapper;
     private final ViewMapper viewMapper;
+    private final SysUserMapper sysUserMapper;
+    private final TcStudentMapper tcStudentMapper;
     private final CodeService codeService;
     private final AuditService auditService;
 
@@ -49,6 +56,7 @@ public class TeachingClassService {
                                 MajorProgramMapper programMapper, ClassInfoMapper classInfoMapper,
                                 TeacherMapper teacherMapper, CourseMapper courseMapper,
                                 ScheduleResultMapper scheduleResultMapper, ViewMapper viewMapper,
+                                SysUserMapper sysUserMapper, TcStudentMapper tcStudentMapper,
                                 CodeService codeService, AuditService auditService) {
         this.tcMapper = tcMapper;
         this.programCourseMapper = programCourseMapper;
@@ -58,6 +66,8 @@ public class TeachingClassService {
         this.courseMapper = courseMapper;
         this.scheduleResultMapper = scheduleResultMapper;
         this.viewMapper = viewMapper;
+        this.sysUserMapper = sysUserMapper;
+        this.tcStudentMapper = tcStudentMapper;
         this.codeService = codeService;
         this.auditService = auditService;
     }
@@ -340,6 +350,156 @@ public class TeachingClassService {
         }
         tcMapper.deleteById(tcId);
         auditService.record("03", "teaching_class:" + tcId, tc, null);
+    }
+
+    // ---------------- 教学班学生名单（教师可往本人教学班内添加学生） ----------------
+
+    /** 教学班现有学生名单 */
+    public List<Map<String, Object>> students(String tcId) {
+        TeachingClass tc = requireTc(tcId);
+        requireOwnership(tc);
+        List<String> stuIds = tcStudentMapper.selectList(Wrappers.<TcStudent>lambdaQuery()
+                        .eq(TcStudent::getTcId, tcId)).stream()
+                .map(TcStudent::getStuId)
+                .toList();
+        List<Map<String, Object>> rows = new ArrayList<>();
+        if (stuIds.isEmpty()) {
+            return rows;
+        }
+        List<SysUser> students = sysUserMapper.selectList(Wrappers.<SysUser>lambdaQuery()
+                .in(SysUser::getUserId, stuIds)
+                .orderByAsc(SysUser::getUserId));
+        Map<String, String> classNames = classNameMap(students);
+        for (SysUser stu : students) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("stuId", stu.getUserId());
+            row.put("stuName", stu.getRealName());
+            row.put("classId", stu.getClassId());
+            row.put("className", classNames.getOrDefault(stu.getClassId(), "-"));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** 可加入教学班的候选学生（未被该教学班收录，可按学号/姓名检索） */
+    public List<Map<String, Object>> studentCandidates(String tcId, String keyword) {
+        TeachingClass tc = requireTc(tcId);
+        requireOwnership(tc);
+        List<String> joined = tcStudentMapper.selectList(Wrappers.<TcStudent>lambdaQuery()
+                        .eq(TcStudent::getTcId, tcId)).stream()
+                .map(TcStudent::getStuId)
+                .toList();
+        List<SysUser> students = sysUserMapper.selectList(Wrappers.<SysUser>lambdaQuery()
+                .eq(SysUser::getRoleId, "R05")
+                .eq(SysUser::getStatus, "1")
+                .notIn(!joined.isEmpty(), SysUser::getUserId, joined)
+                .and(keyword != null && !keyword.isBlank(), w -> w
+                        .like(SysUser::getUserId, keyword)
+                        .or()
+                        .like(SysUser::getRealName, keyword))
+                .orderByAsc(SysUser::getUserId)
+                .last("LIMIT 50"));
+        Map<String, String> classNames = classNameMap(students);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (SysUser stu : students) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("stuId", stu.getUserId());
+            row.put("stuName", stu.getRealName());
+            row.put("classId", stu.getClassId());
+            row.put("className", classNames.getOrDefault(stu.getClassId(), "-"));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    /** 教师向本人教学班添加学生：按学号+姓名核对身份，校验容量上限，并同步实际选课人数 */
+    @Transactional
+    public void addStudent(String tcId, String stuId, String stuName) {
+        TeachingClass tc = requireTc(tcId);
+        requireOwnership(tc);
+        if (stuId == null || stuId.isBlank()) {
+            throw new BizException("请输入学生学号");
+        }
+        SysUser stu = sysUserMapper.selectById(stuId.trim());
+        if (stu == null || !"R05".equals(stu.getRoleId())) {
+            throw new BizException("学生不存在或不是在校本科生，请核对学号");
+        }
+        if (stuName != null && !stuName.isBlank() && !stuName.trim().equals(stu.getRealName())) {
+            throw new BizException("学号与姓名不匹配，请核对后重新添加");
+        }
+        long exists = tcStudentMapper.selectCount(Wrappers.<TcStudent>lambdaQuery()
+                .eq(TcStudent::getTcId, tcId)
+                .eq(TcStudent::getStuId, stu.getUserId()));
+        if (exists > 0) {
+            throw new BizException("该学生已在教学班名单中");
+        }
+        long count = tcStudentMapper.selectCount(Wrappers.<TcStudent>lambdaQuery()
+                .eq(TcStudent::getTcId, tcId));
+        if (tc.getCapacity() != null && count >= tc.getCapacity()) {
+            throw new BizException("已达教学班容量上限 " + tc.getCapacity() + " 人，无法继续添加");
+        }
+        TcStudent row = new TcStudent();
+        row.setTcId(tcId);
+        row.setStuId(stu.getUserId());
+        row.setAddTime(LocalDateTime.now());
+        tcStudentMapper.insert(row);
+        syncActualNum(tcId);
+        auditService.record("01", "tc_student:" + tcId + "-" + stu.getUserId(), null,
+                Map.of("tcId", tcId, "stuId", stu.getUserId()));
+    }
+
+    /** 从教学班名单中移除学生 */
+    @Transactional
+    public void removeStudent(String tcId, String stuId) {
+        TeachingClass tc = requireTc(tcId);
+        requireOwnership(tc);
+        long exists = tcStudentMapper.selectCount(Wrappers.<TcStudent>lambdaQuery()
+                .eq(TcStudent::getTcId, tcId)
+                .eq(TcStudent::getStuId, stuId));
+        if (exists == 0) {
+            throw new BizException("该学生不在教学班名单中");
+        }
+        tcStudentMapper.delete(Wrappers.<TcStudent>lambdaQuery()
+                .eq(TcStudent::getTcId, tcId)
+                .eq(TcStudent::getStuId, stuId));
+        syncActualNum(tcId);
+        auditService.record("03", "tc_student:" + tcId + "-" + stuId,
+                Map.of("tcId", tcId, "stuId", stuId), null);
+    }
+
+    private TeachingClass requireTc(String tcId) {
+        TeachingClass tc = tcMapper.selectById(tcId);
+        if (tc == null) {
+            throw new BizException("教学班不存在");
+        }
+        return tc;
+    }
+
+    /** 名单变动后回写实际选课人数，便于后续开课/停开判断 */
+    private void syncActualNum(String tcId) {
+        long count = tcStudentMapper.selectCount(Wrappers.<TcStudent>lambdaQuery()
+                .eq(TcStudent::getTcId, tcId));
+        TeachingClass update = new TeachingClass();
+        update.setTcId(tcId);
+        update.setActualNum((int) count);
+        tcMapper.updateById(update);
+    }
+
+    private Map<String, String> classNameMap(List<SysUser> users) {
+        List<String> classIds = users.stream()
+                .map(SysUser::getClassId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        Map<String, String> map = new HashMap<>();
+        if (classIds.isEmpty()) {
+            return map;
+        }
+        for (ClassInfo ci : classInfoMapper.selectList(Wrappers.<ClassInfo>lambdaQuery()
+                .in(ClassInfo::getClassId, classIds))) {
+            map.put(ci.getClassId(), ci.getClassName());
+        }
+        return map;
     }
 
     private String str(Object o) {

@@ -373,7 +373,7 @@ public class DualController {
         LoginUser user = UserContext.require();
         String myClass = classId != null ? classId : user.getClassId();
         List<Map<String, Object>> mainRows = myClass == null ? List.of()
-                : viewMapper.timetable(term, null, myClass, null);
+                : viewMapper.timetable(term, null, myClass, null, null);
         List<StudyRecord> records = studyMapper.selectList(Wrappers.<StudyRecord>lambdaQuery()
                 .eq(StudyRecord::getStuId, stuId)
                 .isNotNull(StudyRecord::getTcId));

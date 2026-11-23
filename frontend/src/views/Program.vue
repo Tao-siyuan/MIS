@@ -342,14 +342,14 @@ const versionTitle = ref('')
 
 const creditRows = computed(() => {
   if (!credit.value?.byType) return []
-  const names = { 11: '校级必修', 12: '院级必修', 13: '专业必修', 14: '专业选修', 15: '通识', 16: '实践教学' }
+  const names = { 11: '校级必修', 12: '院级必修', 13: '专业必修', 14: '专业选修', 15: '通识', 16: '实践教学', 17: '素质拓展' }
   return Object.entries(credit.value.byType).map(([k, v]) => ({ type: names[k] || k, credit: v }))
 })
 
 const statusName = (s) => ({ 0: '编制中', 1: '院系初审', 2: '教务处审核', 3: '已发布' }[s] || '-')
 const statusType = (s) => ({ 0: 'info', 1: 'warning', 2: 'warning', 3: 'success' }[s] || 'info')
 const courseTypeName = (t) =>
-  ({ 11: '校级必修', 12: '院级必修', 13: '专业必修', 14: '专业选修', 15: '通识', 16: '实践' }[t] || t)
+  ({ 11: '校级必修', 12: '院级必修', 13: '专业必修', 14: '专业选修', 15: '通识', 16: '实践', 17: '素质拓展' }[t] || t)
 
 async function load() {
   rows.value = await api.programs({

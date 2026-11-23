@@ -15,15 +15,15 @@
             </el-select>
             <el-radio-group v-model="view" @change="onViewChange">
               <el-radio-button value="self">我的课表</el-radio-button>
-              <el-radio-button v-if="!isStudent" value="class">班级</el-radio-button>
-              <el-radio-button v-if="!isStudent" value="teacher">教师</el-radio-button>
-              <el-radio-button v-if="!isStudent" value="room">教室</el-radio-button>
+              <el-radio-button v-if="canQueryOthers" value="class">班级</el-radio-button>
+              <el-radio-button v-if="canQueryOthers" value="teacher">教师</el-radio-button>
+              <el-radio-button v-if="canQueryOthers" value="room">教室</el-radio-button>
             </el-radio-group>
             <el-select v-if="view === 'class'" v-model="key" filterable placeholder="选择班级" style="width: 180px" @change="load">
               <el-option v-for="c in classes" :key="c.classId" :label="c.className" :value="c.classId" />
             </el-select>
-            <el-select v-if="view === 'teacher'" v-model="key" filterable placeholder="选择教师" style="width: 180px" @change="load">
-              <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.teacherId}）`" :value="t.teacherId" />
+            <el-select v-if="view === 'teacher' && canQueryOthers" v-model="key" filterable placeholder="选择教师" style="width: 180px" @change="load">
+              <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.userId || t.teacherId}）`" :value="t.teacherId" />
             </el-select>
             <el-select v-if="view === 'room'" v-model="key" filterable placeholder="选择教室" style="width: 180px" @change="load">
               <el-option v-for="r in rooms" :key="r.roomId" :label="r.roomName" :value="r.roomId" />
@@ -119,6 +119,9 @@ const exporting = ref(false)
 const periods = [1, 3, 5, 7, 9, 11]
 
 const isStudent = computed(() => user.isStudent())
+const isTeacher = computed(() => user.isTeacher())
+/** 只有教务类角色（校级/院级）可以按班级、教师、教室查询他人课表 */
+const canQueryOthers = computed(() => !isStudent.value && !isTeacher.value)
 
 const dayName = (d) => ({ 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五' }[d] || '')
 
@@ -228,16 +231,16 @@ onMounted(async () => {
   } catch (e) {
     terms.value = [term.value]
   }
-  if (!isStudent.value) {
+  if (canQueryOthers.value) {
     classes.value = await api.classes()
     teachers.value = await api.teachers()
     rooms.value = await api.rooms()
   }
-  // 默认视图按角色决定：教师看本人课表，教务看班级课表
-  if (user.user?.teacherId) {
-    view.value = 'teacher'
+  // 默认视图按角色决定：教师只看本人课表，教务看班级课表
+  if (isTeacher.value) {
+    view.value = 'self'
     key.value = user.user.teacherId
-  } else if (!isStudent.value) {
+  } else if (canQueryOthers.value) {
     view.value = 'class'
     key.value = classes.value[0]?.classId || ''
   }

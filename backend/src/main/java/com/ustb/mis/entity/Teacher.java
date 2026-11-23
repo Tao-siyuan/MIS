@@ -1,13 +1,10 @@
 package com.ustb.mis.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
-
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 /**
  * teacher 实体（对应数据字典中的业务表）。
@@ -21,4 +18,7 @@ public class Teacher {
     private String collegeId;
     private String title;
     private String teacherStatus;
+    /** 登录工号（sys_user.user_id）：界面统一展示工号，不对外暴露师资子系统编号 */
+    @TableField(exist = false)
+    private String userId;
 }

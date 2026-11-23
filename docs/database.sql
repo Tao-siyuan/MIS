@@ -42,7 +42,7 @@ CREATE TABLE major (
 CREATE TABLE course (
     course_id     VARCHAR(8)   NOT NULL COMMENT '课程号（学院2位+流水5位）',
     course_name   VARCHAR(40)  NOT NULL COMMENT '课程名称',
-    course_type   VARCHAR(2)   NOT NULL COMMENT '11校级必修/12院级必修/13专业必修/14专业选修/15通识/16实践',
+    course_type   VARCHAR(2)   NOT NULL COMMENT '11校级必修/12院级必修/13专业必修/14专业选修/15通识/16实践/17素质拓展',
     credit        DECIMAL(3,1) NOT NULL COMMENT '学分',
     total_hours   INT          NOT NULL COMMENT '总学时',
     assess_type   VARCHAR(1)   NOT NULL DEFAULT '1' COMMENT '1考试/2考查',
@@ -154,21 +154,22 @@ CREATE TABLE general_plan (
 
 CREATE TABLE new_course_apply (
     apply_id       VARCHAR(10) NOT NULL COMMENT '申请编号（NC+年份+流水）',
-    apply_user     VARCHAR(8)  NOT NULL COMMENT '申请人（教师编号）',
+    apply_user     VARCHAR(11) NOT NULL COMMENT '申请人工号（教师/学院教务/教务处）',
     course_name    VARCHAR(40) NOT NULL COMMENT '拟开课程名称',
-    course_type    VARCHAR(2)  NOT NULL DEFAULT '14' COMMENT '拟设课程性质',
+    course_type    VARCHAR(2)  NOT NULL DEFAULT '14' COMMENT '拟设课程性质：教师限17/学院教务限13,14/教务处限15',
+    dispatch_college VARCHAR(2)         COMMENT '下发学院：教务处申报通识课程后下发至该学院补充',
     apply_reason   VARCHAR(200)         COMMENT '开设理由',
     credit         DECIMAL(3,1) NOT NULL COMMENT '拟定学分',
     hours          INT          NOT NULL DEFAULT 32 COMMENT '拟定学时',
     college_opinion VARCHAR(100)        COMMENT '学院审核意见',
-    audit_status   VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0学院待审/3教务处待审/1批准/2驳回',
+    audit_status   VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0学院待审/3教务处待审/4待学院补充/1批准/2驳回',
     course_id      VARCHAR(8)           COMMENT '生成课程号',
     audit_opinion  VARCHAR(200)         COMMENT '审核意见',
     apply_time     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     audit_time     DATETIME             COMMENT '审核时间',
     PRIMARY KEY (apply_id),
     KEY idx_nca_user (apply_user),
-    CONSTRAINT fk_nca_teacher FOREIGN KEY (apply_user) REFERENCES teacher (teacher_id)
+    KEY idx_nca_college (dispatch_college)
 ) ENGINE=InnoDB COMMENT='新增课程申请表';
 
 CREATE TABLE teaching_class (
@@ -198,6 +199,17 @@ CREATE TABLE teaching_class (
     CONSTRAINT fk_tc_course FOREIGN KEY (course_id) REFERENCES course (course_id),
     CONSTRAINT fk_tc_teacher FOREIGN KEY (teacher_id) REFERENCES teacher (teacher_id)
 ) ENGINE=InnoDB COMMENT='教学班表';
+
+-- 教学班学生名单：任课教师可在本人教学班内添加/移除学生（重修、跨专业选课等）
+CREATE TABLE tc_student (
+    tc_id    VARCHAR(20) NOT NULL COMMENT '教学班编号',
+    stu_id   VARCHAR(11) NOT NULL COMMENT '学号',
+    add_time DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+    PRIMARY KEY (tc_id, stu_id),
+    KEY idx_tcs_stu (stu_id),
+    KEY idx_tcs_tc (tc_id),
+    CONSTRAINT fk_tcs_tc FOREIGN KEY (tc_id) REFERENCES teaching_class (tc_id)
+) ENGINE=InnoDB COMMENT='教学班学生名单';
 
 -- ---------------------------------------------------------------------
 -- 四、排课（T09～T13）
@@ -275,7 +287,7 @@ CREATE TABLE adjust_record (
     new_end_slot   INT                  COMMENT '新结束节次',
     reason         VARCHAR(150)         COMMENT '调课原因',
     effect_date    DATE                 COMMENT '生效日期',
-    approve_status VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0待审批/1通过/2驳回',
+    approve_status VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0学院待审/4待教务处备案/1已通过(备案生效)/2驳回/3申请人撤回',
     approver       VARCHAR(11)          COMMENT '审批人',
     approve_opinion VARCHAR(150)        COMMENT '审批意见',
     restore_flag   VARCHAR(1)  NOT NULL DEFAULT '0' COMMENT '0未恢复/1已恢复',
@@ -669,10 +681,11 @@ INSERT INTO general_plan (school_year, course_id, plan_category, suggest_hours, 
 ('2026-2027','1701003','03',32,'17','T2026014','0','1'),
 ('2026-2027','1701004','01',32,'17','T2026014','0','1');
 
-INSERT INTO new_course_apply (apply_id, apply_user, course_name, course_type, apply_reason, credit, hours, college_opinion, audit_status, course_id, audit_opinion, apply_time) VALUES
-('NC20260001','T2026003','智能硬件导论','14','面向人工智能方向的新设课程，衔接嵌入式与智能系统内容。',2.0,32,'课程内容与专业培养目标一致，同意上报教务处','3',NULL,NULL,'2026-11-10 09:20:00'),
-('NC20260002','T2026011','商业数据分析实务','14','补充信管专业商务智能方向的实践类课程。',2.5,40,NULL,'0',NULL,NULL,'2026-11-12 14:05:00'),
-('NC20250009','T2026004','云原生技术基础','14','面向计算机专业高年级开设的工程实践课程。',2.0,32,'同意申报','1','0901013','内容与学时匹配，同意入库','2025-05-06 10:00:00');
+INSERT INTO new_course_apply (apply_id, apply_user, course_name, course_type, dispatch_college, apply_reason, credit, hours, college_opinion, audit_status, course_id, audit_opinion, apply_time) VALUES
+('NC20260001','A230001','智能硬件导论','17',NULL,'面向人工智能方向的新设素质拓展课程，衔接嵌入式与智能系统内容。',2.0,32,'课程内容与专业培养目标一致，同意上报教务处','3',NULL,NULL,'2026-11-10 09:20:00'),
+('NC20260002','B220002','商业数据分析实务','14',NULL,'补充信管专业商务智能方向的实践类课程。',2.5,40,NULL,'3',NULL,NULL,'2026-11-12 14:05:00'),
+('NC20260003','B220001','中国传统文化概论','15','09','面向全校开设的通识课程，下发计通学院补充培养要求。',2.0,32,NULL,'4',NULL,NULL,'2026-11-15 10:30:00'),
+('NC20250009','A230001','云原生技术基础','17',NULL,'面向计算机专业高年级开设的工程实践课程。',2.0,32,'同意申报','1','0901013','内容与学时匹配，同意入库','2025-05-06 10:00:00');
 
 INSERT INTO teaching_class (tc_id, term, course_id, teacher_id, class_ids, student_num, capacity, tc_type, teach_type, hours, week_count, prefer_slot, unavailable_time, tc_status, source, actual_num, open_lower) VALUES
 ('202510001','2025-2026-1','1001001','T2026004','计2601',32,90,'1','1',96,16,'1-2 节',NULL,'4',1,32,10),
@@ -777,7 +790,11 @@ INSERT INTO eval_record (record_id, plan_id, tc_id, stu_id, score, item_score, c
 ('ER20260003','EP202601','202610001','U2023***03','88.0','{"教学态度":90,"内容组织":88,"教学方法":86,"考核合理":88}','希望增加实践环节','1','2026-11-17 21:05:00'),
 ('ER20260004','EP202601','202610002','U2023***04','96.0','{"教学态度":97,"内容组织":96,"教学方法":95,"考核合理":96}','课程难度合适，收获大','1','2026-11-18 10:00:00'),
 ('ER20260005','EP202601','202610007','U2023***05','85.0','{"教学态度":86,"内容组织":85,"教学方法":84,"考核合理":85}','口语练习可以再多一些','1','2026-11-18 19:40:00'),
-('ER20250001','EP202502','202610001','U2023***06','91.0','{"教学态度":92,"内容组织":90,"教学方法":91}','总体满意','1','2026-06-01 10:00:00');
+('ER20250001','EP202502','202520001','U2023***06','91.0','{"教学态度":92,"内容组织":90,"教学方法":91}','总体满意','1','2026-06-01 10:00:00'),
+('ER20250002','EP202502','202520001','U2023***07','87.5','{"教学态度":88,"内容组织":87,"教学方法":87}','希望增加随堂练习','1','2026-06-01 11:20:00'),
+('ER20250003','EP202502','202520001','U2023***08','93.0','{"教学态度":94,"内容组织":93,"教学方法":92}','案例贴合工程实践','1','2026-06-02 09:10:00'),
+('ER20250004','EP202502','202520001','U2023***09','89.0','{"教学态度":90,"内容组织":89,"教学方法":88}','节奏稍快','1','2026-06-02 15:40:00'),
+('ER20250005','EP202502','202520001','U2023***10','95.0','{"教学态度":96,"内容组织":95,"教学方法":94}','答疑及时，收获很大','1','2026-06-03 20:05:00');
 
 INSERT INTO sys_role (role_id, role_name, data_scope, func_perm, role_status, remark) VALUES
 ('R01','系统管理员','1','P01,P02,P03,P04,P05,P06,P07,P08,P09,P10,P11,P12,P13,P14,P15,P16,P17,P18,P19,P20,P21,P22,P23,P24','1','信息化办运维岗'),
@@ -801,10 +818,14 @@ INSERT INTO sys_user (user_id, user_name, password, real_name, role_id, college_
 ('A230001','A230001','f29803033af45b169075669232d724651e800d5c950f6cbbfa5d94537ddb3ec5','李建国','R04','09',NULL,NULL,'T2026001','1'),
 ('A230002','A230002','8d091cb74288a5952ab74361a908c63debd5f906679d8ba4f67672dfabbb39bb','王敏','R04','09',NULL,NULL,'T2026002','1'),
 ('U202341224','U202341224','b11db76eb702bf9b9409f7118aa626090e25c7c53e85b320399fd1156ba3974b','赵一鸣','R05','09','080901','计2601',NULL,'1'),
+('U202341225','U202341225','deb503d2a8d8829611a167d11754636ed9b89df1f43067f3218d683d3df93299','张思远','R05','09','080901','计2601',NULL,'1'),
+('U202341226','U202341226','7603521e08e97f8db5a4e4065ba5c5c9c1b1f25f63e287c3a843d3baa74ec03c','刘雨桐','R05','09','080901','计2601',NULL,'1'),
+('U202341227','U202341227','36fb5e238e373b5a39e7dc2a1066a541668ff83078aced5246c5d8d42abf23c3','陈嘉豪','R05','09','080901','计2601',NULL,'1'),
 ('B220004','B220004','da4be3997054b1287faed729a3caa6ea5afb9122b54228a06e91d8f65f8084c3','教室管理员','R06',NULL,NULL,NULL,NULL,'1');
 
 INSERT INTO sys_user_role (user_id, role_id) VALUES
-('admin','R01'),('B220001','R02'),('B220002','R03'),('B220003','R03'),('A230001','R04'),('A230002','R04'),('U202341224','R05'),('B220004','R06');
+('admin','R01'),('B220001','R02'),('B220002','R03'),('B220003','R03'),('A230001','R04'),('A230002','R04'),
+('U202341224','R05'),('U202341225','R05'),('U202341226','R05'),('U202341227','R05'),('B220004','R06');
 
 INSERT INTO audit_log (log_id, user_id, role_id, oper_type, oper_object, before_value, after_value, oper_result, client_ip, oper_time) VALUES
 ('L20260630100001','B220001','R02','05','major_program:080901-2026-1','{"plan_status":"2"}','{"plan_status":"3"}','1','10.10.1.21','2026-06-30 10:00:01'),

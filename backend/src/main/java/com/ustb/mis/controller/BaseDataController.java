@@ -7,14 +7,18 @@ import com.ustb.mis.entity.ClassInfo;
 import com.ustb.mis.entity.College;
 import com.ustb.mis.entity.Major;
 import com.ustb.mis.entity.MajorProgram;
+import com.ustb.mis.entity.SysUser;
 import com.ustb.mis.entity.Teacher;
 import com.ustb.mis.mapper.ClassInfoMapper;
 import com.ustb.mis.mapper.CollegeMapper;
 import com.ustb.mis.mapper.MajorMapper;
 import com.ustb.mis.mapper.MajorProgramMapper;
+import com.ustb.mis.mapper.SysUserMapper;
 import com.ustb.mis.mapper.TeacherMapper;
 import com.ustb.mis.mapper.ViewMapper;
+import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.RequirePerm;
+import com.ustb.mis.security.UserContext;
 import com.ustb.mis.service.AuditService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,18 +45,20 @@ public class BaseDataController {
     private final MajorMapper majorMapper;
     private final ClassInfoMapper classInfoMapper;
     private final TeacherMapper teacherMapper;
+    private final SysUserMapper sysUserMapper;
     private final MajorProgramMapper programMapper;
     private final ViewMapper viewMapper;
     private final AuditService auditService;
 
     public BaseDataController(CollegeMapper collegeMapper, MajorMapper majorMapper,
                               ClassInfoMapper classInfoMapper, TeacherMapper teacherMapper,
-                              MajorProgramMapper programMapper, ViewMapper viewMapper,
-                              AuditService auditService) {
+                              SysUserMapper sysUserMapper, MajorProgramMapper programMapper,
+                              ViewMapper viewMapper, AuditService auditService) {
         this.collegeMapper = collegeMapper;
         this.majorMapper = majorMapper;
         this.classInfoMapper = classInfoMapper;
         this.teacherMapper = teacherMapper;
+        this.sysUserMapper = sysUserMapper;
         this.programMapper = programMapper;
         this.viewMapper = viewMapper;
         this.auditService = auditService;
@@ -197,8 +203,20 @@ public class BaseDataController {
     @RequirePerm({"P01", "P02", "P08", "P09", "P12"})
     public Result<List<ClassInfo>> classes(@RequestParam(required = false) String majorId,
                                           @RequestParam(required = false) String grade) {
+        LoginUser user = UserContext.require();
+        List<String> ownMajorIds = null;
+        if ("2".equals(user.getDataScope()) && user.getCollegeId() != null) {
+            // 学院教务只能取到本学院专业下的班级
+            ownMajorIds = majorMapper.selectList(Wrappers.<Major>lambdaQuery()
+                            .eq(Major::getCollegeId, user.getCollegeId()))
+                    .stream().map(Major::getMajorId).toList();
+            if (ownMajorIds.isEmpty()) {
+                return Result.ok(List.of());
+            }
+        }
         return Result.ok(classInfoMapper.selectList(Wrappers.<ClassInfo>lambdaQuery()
                 .eq(majorId != null && !majorId.isBlank(), ClassInfo::getMajorId, majorId)
+                .in(ownMajorIds != null, ClassInfo::getMajorId, ownMajorIds)
                 .eq(grade != null && !grade.isBlank(), ClassInfo::getGrade, grade)
                 .orderByAsc(ClassInfo::getClassId)));
     }
@@ -206,9 +224,25 @@ public class BaseDataController {
     @GetMapping("/teachers")
     @RequirePerm({"P01", "P02", "P04", "P05", "P07", "P08", "P09", "P12", "P15"})
     public Result<List<Teacher>> teachers(@RequestParam(required = false) String collegeId) {
-        return Result.ok(teacherMapper.selectList(Wrappers.<Teacher>lambdaQuery()
-                .eq(collegeId != null && !collegeId.isBlank(), Teacher::getCollegeId, collegeId)
+        LoginUser user = UserContext.require();
+        String scopeCollege = collegeId;
+        if ("2".equals(user.getDataScope()) && user.getCollegeId() != null) {
+            // 学院教务只能取到本学院教师
+            scopeCollege = user.getCollegeId();
+        }
+        List<Teacher> list = teacherMapper.selectList(Wrappers.<Teacher>lambdaQuery()
+                .eq(scopeCollege != null && !scopeCollege.isBlank(), Teacher::getCollegeId, scopeCollege)
                 .eq(Teacher::getTeacherStatus, "1")
-                .orderByAsc(Teacher::getTeacherId)));
+                .orderByAsc(Teacher::getTeacherId));
+        // 师资子系统编号不外显，统一以登录工号（sys_user.user_id）展示
+        Map<String, String> userIds = new java.util.HashMap<>();
+        for (SysUser u : sysUserMapper.selectList(Wrappers.<SysUser>lambdaQuery()
+                .isNotNull(SysUser::getTeacherId))) {
+            if (u.getTeacherId() != null) {
+                userIds.putIfAbsent(u.getTeacherId(), u.getUserId());
+            }
+        }
+        list.forEach(t -> t.setUserId(userIds.get(t.getTeacherId())));
+        return Result.ok(list);
     }
 }

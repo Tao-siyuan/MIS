@@ -20,6 +20,8 @@ public class NewCourseApply {
     private String applyUser;
     private String courseName;
     private String courseType;
+    /** 下发学院：教务处申报通识课程后下发的学院，由该学院教务补充后再交教务处审核 */
+    private String dispatchCollege;
     private String applyReason;
     private BigDecimal credit;
     private Integer hours;

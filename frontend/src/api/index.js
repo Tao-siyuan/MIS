@@ -88,6 +88,7 @@ export const api = {
   applyCourse: (data) => http.post('/new-course-applies', data),
   auditApply: (id, data) => http.post(`/new-course-applies/${id}/audit`, data),
   collegeAuditApply: (id, data) => http.post(`/new-course-applies/${id}/college-audit`, data),
+  supplementApply: (id, data) => http.post(`/new-course-applies/${id}/supplement`, data),
 
   // 教学班与排课
   teachingClasses: (params) => http.get('/teaching-classes', { params }),
@@ -96,6 +97,10 @@ export const api = {
   tcStatus: (tcId, status, reason) =>
     http.put(`/teaching-classes/${tcId}/status`, null, { params: { status, reason } }),
   deleteTc: (tcId) => http.delete(`/teaching-classes/${tcId}`),
+  tcStudents: (tcId) => http.get(`/teaching-classes/${tcId}/students`),
+  tcStudentCandidates: (tcId, params) => http.get(`/teaching-classes/${tcId}/student-candidates`, { params }),
+  addTcStudent: (tcId, data) => http.post(`/teaching-classes/${tcId}/students`, data),
+  removeTcStudent: (tcId, stuId) => http.delete(`/teaching-classes/${tcId}/students/${stuId}`),
   scheduleResults: (params) => http.get('/schedule/results', { params }),
   workbench: (params) => http.get('/schedule/workbench', { params }),
   autoSchedule: (data) => http.post('/schedule/auto', data),
@@ -114,8 +119,11 @@ export const api = {
   // 调课
   adjustments: (params) => http.get('/adjustments', { params }),
   applyAdjust: (data) => http.post('/adjustments', data),
+  adjustAvailableRooms: (data) => http.post('/adjustments/available-rooms', data),
+  collegeReviewAdjust: (id, data) => http.post(`/adjustments/${id}/college-review`, data),
   approveAdjust: (id, data) => http.post(`/adjustments/${id}/approve`, data),
   rejectAdjust: (id, data) => http.post(`/adjustments/${id}/reject`, data),
+  withdrawAdjust: (id) => http.post(`/adjustments/${id}/withdraw`),
   restoreAdjust: (id) => http.post(`/adjustments/${id}/restore`),
 
   // 课表
