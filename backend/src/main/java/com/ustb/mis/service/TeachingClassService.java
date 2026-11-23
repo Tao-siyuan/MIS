@@ -215,7 +215,7 @@ public class TeachingClassService {
         int skipped = 0;
         List<String> messages = new ArrayList<>();
         for (ProgramCourse pc : courses) {
-            if ("8".equals(pc.getOpenSemester())) {
+            if (semesterIndex(grade, pc.getOpenSemester()) >= 8) {
                 skipped++;
                 messages.add(pc.getCourseId() + " 为毕业学期课程，不参与排课");
                 continue;
@@ -286,16 +286,37 @@ public class TeachingClassService {
                 .orElse(teachers.get(0));
     }
 
-    /** 依据入学年级与开课学期推算学期：2026 级第 3 学期 → 2027-2028-1 */
+    /** 方案课程开课学期已是完整学期（YYYY-YYYY-N），直接返回；旧数据单个数字按年级推算兼容 */
     private String termFor(String grade, String openSemester, String fallback) {
-        if (grade == null || !grade.matches("\\d{4}") || openSemester == null
-                || !openSemester.matches("[1-8]")) {
+        if (openSemester == null || openSemester.isBlank()) {
             return fallback;
         }
-        int enrollYear = Integer.parseInt(grade);
-        int semester = Integer.parseInt(openSemester);
-        int year = enrollYear + (semester - 1) / 2;
-        return year + "-" + (year + 1) + "-" + ((semester - 1) % 2 + 1);
+        if (openSemester.matches("\\d{4}-\\d{4}-[1-3]")) {
+            return openSemester;
+        }
+        if (grade != null && grade.matches("\\d{4}") && openSemester.matches("[1-8]")) {
+            int enrollYear = Integer.parseInt(grade);
+            int semester = Integer.parseInt(openSemester);
+            int year = enrollYear + (semester - 1) / 2;
+            return year + "-" + (year + 1) + "-" + ((semester - 1) % 2 + 1);
+        }
+        return fallback;
+    }
+
+    /** 计算课程在大学八学期中的序号（完整学期按入学年级换算，兼容旧数字） */
+    private int semesterIndex(String grade, String openSemester) {
+        if (openSemester == null || openSemester.isBlank()) {
+            return 0;
+        }
+        if (openSemester.matches("[1-8]")) {
+            return Integer.parseInt(openSemester);
+        }
+        if (grade != null && grade.matches("\\d{4}") && openSemester.matches("\\d{4}-\\d{4}-[1-3]")) {
+            String[] parts = openSemester.split("-");
+            int yearDiff = Integer.parseInt(parts[0]) - Integer.parseInt(grade);
+            return Math.max(0, yearDiff * 2 + Integer.parseInt(parts[2]));
+        }
+        return 0;
     }
 
     /** 数据范围校验：全校可维护；学院教务员限本学院开课；教师限本人任教（P0-03） */

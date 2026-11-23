@@ -20,11 +20,19 @@ public class MajorProgram {
     private String grade;
     private String programType;
     private BigDecimal totalCredit;
+    /** 总学时（取自培养方案） */
+    private Integer totalHours;
     private String goalDesc;
     private String version;
     private String planStatus;
     private Integer dualQuota;
     private String reviewOpinion;
     private LocalDate publishDate;
+    /** 选课要求 / 毕业要求 / 方案说明（取自培养方案文本） */
+    private String requireDesc;
+    private String graduateDesc;
+    private String planDesc;
+    /** 来源计划编号，仅留痕 */
+    private String sourcePlanNo;
     private LocalDateTime createTime;
 }

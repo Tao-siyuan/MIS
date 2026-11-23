@@ -21,6 +21,12 @@ public class ProgramCourse {
     @TableId(type = IdType.INPUT)
     private String courseId;
     private String courseType;
+    /** 课程属性：必修/选修（取自培养方案） */
+    private String courseAttribute;
+    /** 考核方式：考试/考查 */
+    private String assessType;
+    /** 来源培养方案课程编号，仅留痕 */
+    private String sourceCourseNo;
     private BigDecimal credit;
     private Integer hours;
     private String openSemester;

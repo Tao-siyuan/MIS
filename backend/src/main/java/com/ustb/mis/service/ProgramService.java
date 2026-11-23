@@ -218,8 +218,8 @@ public class ProgramService {
             throw new BizException("课程已停用，不能列入方案");
         }
         String openSemester = str(body.get("openSemester"));
-        if (openSemester == null) {
-            throw new BizException("开课学期不能为空");
+        if (openSemester == null || !openSemester.matches("\\d{4}-\\d{4}-[1-3]")) {
+            throw new BizException("开课学期格式应为 YYYY-YYYY-N（如 2026-2027-1）");
         }
         if (programCourseMapper.selectCount(Wrappers.<ProgramCourse>lambdaQuery()
                 .eq(ProgramCourse::getMajorId, majorId)
@@ -238,8 +238,8 @@ public class ProgramService {
                     .eq(ProgramCourse::getGrade, grade)
                     .eq(ProgramCourse::getProgramType, programType)
                     .eq(ProgramCourse::getCourseId, preCourseId));
-            if (pre != null && Integer.parseInt(pre.getOpenSemester()) >= Integer.parseInt(openSemester)) {
-                throw new BizException("先修课程须安排在本课程之前学期（" + pre.getOpenSemester() + " 学期）");
+            if (pre != null && compareSemester(pre.getOpenSemester(), openSemester) >= 0) {
+                throw new BizException("先修课程须安排在本课程之前学期（" + pre.getOpenSemester() + "）");
             }
         }
         ProgramCourse pc = new ProgramCourse();
@@ -646,6 +646,21 @@ public class ProgramService {
         int major = Integer.parseInt(parts[0]);
         int minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
         return "V" + major + "." + (minor + 1);
+    }
+
+    /** 学期比较：完整格式 YYYY-YYYY-N 字典序即时间序，兼容旧单个数字 */
+    private int compareSemester(String a, String b) {
+        if (a == null || b == null) {
+            return 0;
+        }
+        if (a.matches("\\d{4}-\\d{4}-[1-3]") && b.matches("\\d{4}-\\d{4}-[1-3]")) {
+            return a.compareTo(b);
+        }
+        try {
+            return Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
+        } catch (NumberFormatException e) {
+            return a.compareTo(b);
+        }
     }
 
     private String str(Object o) {

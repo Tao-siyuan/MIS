@@ -58,7 +58,10 @@ public interface ViewMapper {
     @Select("""
             <script>
             SELECT p.major_id AS majorId, m.major_name AS majorName, p.grade AS grade,
-                   p.program_type AS programType, p.total_credit AS totalCredit, p.goal_desc AS goalDesc,
+                   p.program_type AS programType, p.total_credit AS totalCredit, p.total_hours AS totalHours,
+                   p.goal_desc AS goalDesc, p.require_desc AS requireDesc,
+                   p.graduate_desc AS graduateDesc, p.plan_desc AS planDesc,
+                   p.source_plan_no AS sourcePlanNo,
                    p.version AS version, p.plan_status AS planStatus, p.dual_quota AS dualQuota,
                    p.review_opinion AS reviewOpinion, p.publish_date AS publishDate,
                    m.college_id AS collegeId, c.college_name AS collegeName,
@@ -85,6 +88,8 @@ public interface ViewMapper {
     @Select("""
             SELECT pc.major_id AS majorId, pc.grade AS grade, pc.program_type AS programType,
                    pc.course_id AS courseId, c.course_name AS courseName, pc.course_type AS courseType,
+                   pc.course_attribute AS courseAttribute, pc.assess_type AS assessType,
+                   pc.source_course_no AS sourceCourseNo,
                    pc.credit AS credit, pc.hours AS hours, pc.open_semester AS openSemester,
                    pc.pre_course_id AS preCourseId, p.course_name AS preCourseName,
                    pc.cross_status AS crossStatus, c.open_college AS openCollege,
@@ -94,7 +99,7 @@ public interface ViewMapper {
             LEFT JOIN course p ON p.course_id = pc.pre_course_id
             LEFT JOIN college co ON co.college_id = c.open_college
             WHERE pc.major_id = #{majorId} AND pc.grade = #{grade} AND pc.program_type = #{programType}
-            ORDER BY CAST(pc.open_semester AS UNSIGNED), pc.course_id
+            ORDER BY pc.open_semester, pc.course_id
             """)
     List<Map<String, Object>> listProgramCourses(@Param("majorId") String majorId,
                                                  @Param("grade") String grade,

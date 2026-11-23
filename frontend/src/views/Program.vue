@@ -118,7 +118,7 @@
           <el-input-number v-model="form.dualQuota" :min="0" :max="200" />
         </el-form-item>
         <el-form-item label="培养目标">
-          <el-input v-model="form.goalDesc" type="textarea" :rows="4" maxlength="300" show-word-limit />
+          <el-input v-model="form.goalDesc" type="textarea" :rows="4" maxlength="3000" show-word-limit />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -149,13 +149,29 @@
         style="margin-bottom: 10px"
         :title="`方案当前为「${statusName(current?.planStatus)}」，课程明细已锁定只读；如需修订请使用“编制新版本”。`"
       />
+      <!-- 培养方案文本：参照《北京科技大学2024-2026级专业培养方案》 -->
+      <el-collapse style="margin-bottom: 12px">
+        <el-collapse-item title="培养目标 / 毕业要求 / 选课要求 / 方案说明" name="text">
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="总学分">{{ current?.totalCredit }}</el-descriptions-item>
+            <el-descriptions-item label="总学时">{{ current?.totalHours || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="来源计划编号" :span="2">{{ current?.sourcePlanNo || '-' }}</el-descriptions-item>
+            <el-descriptions-item label="培养目标" :span="2"><div class="plan-text">{{ current?.goalDesc || '-' }}</div></el-descriptions-item>
+            <el-descriptions-item label="毕业要求" :span="2"><div class="plan-text">{{ current?.graduateDesc || '-' }}</div></el-descriptions-item>
+            <el-descriptions-item label="选课要求" :span="2"><div class="plan-text">{{ current?.requireDesc || '-' }}</div></el-descriptions-item>
+            <el-descriptions-item label="方案说明" :span="2"><div class="plan-text">{{ current?.planDesc || '-' }}</div></el-descriptions-item>
+          </el-descriptions>
+        </el-collapse-item>
+      </el-collapse>
       <el-table :data="detailRows" border size="small" max-height="600">
-        <el-table-column prop="openSemester" label="学期" width="65" />
+        <el-table-column prop="openSemester" label="学期" width="105" />
         <el-table-column prop="courseId" label="课程号" width="100" />
         <el-table-column prop="courseName" label="课程名称" min-width="180" show-overflow-tooltip />
         <el-table-column label="性质" width="90">
           <template #default="{ row }">{{ courseTypeName(row.courseType) }}</template>
         </el-table-column>
+        <el-table-column prop="courseAttribute" label="属性" width="70" />
+        <el-table-column prop="assessType" label="考核" width="70" />
         <el-table-column prop="credit" label="学分" width="65" />
         <el-table-column prop="hours" label="学时" width="65" />
         <el-table-column prop="preCourseName" label="先修课程" width="140" show-overflow-tooltip />
@@ -201,7 +217,7 @@
         </el-form-item>
         <el-form-item label="开课学期" required>
           <el-select v-model="courseForm.openSemester" style="width: 160px">
-            <el-option v-for="n in 8" :key="n" :label="`第 ${n} 学期`" :value="String(n)" />
+            <el-option v-for="s in semesterOptions" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
         <el-form-item label="学分 / 学时">
@@ -213,7 +229,7 @@
             <el-option
               v-for="c in detailRows"
               :key="c.courseId"
-              :label="`${c.courseName}（第 ${c.openSemester} 学期）`"
+              :label="`${c.courseName}（${c.openSemester}）`"
               :value="c.courseId"
             />
           </el-select>
@@ -346,6 +362,21 @@ const creditRows = computed(() => {
   return Object.entries(credit.value.byType).map(([k, v]) => ({ type: names[k] || k, credit: v }))
 })
 
+// 学期选项：按方案年级生成 8 个学期（YYYY-YYYY-1/2/3），Excel 中第 3 学期为小学期
+const semesterOptions = computed(() => {
+  const grade = Number(current.value?.grade)
+  if (!grade) return []
+  const out = []
+  for (let i = 0; i < 8; i++) {
+    const year = grade + Math.floor(i / 2)
+    const term = (i % 2) + 1
+    // 每学年末追加小学期，与培养方案 Excel 的开课学期格式一致
+    out.push(`${year}-${year + 1}-${term}`)
+    if (term === 2) out.push(`${year}-${year + 1}-3`)
+  }
+  return out
+})
+
 const statusName = (s) => ({ 0: '编制中', 1: '院系初审', 2: '教务处审核', 3: '已发布' }[s] || '-')
 const statusType = (s) => ({ 0: 'info', 1: 'warning', 2: 'warning', 3: 'success' }[s] || 'info')
 const courseTypeName = (t) =>
@@ -396,7 +427,7 @@ async function loadDetail() {
 
 function openAddCourse() {
   Object.keys(courseForm).forEach((k) => delete courseForm[k])
-  Object.assign(courseForm, { openSemester: '1' })
+  Object.assign(courseForm, { openSemester: semesterOptions.value[0] || '' })
   courseDialog.value = true
 }
 
@@ -529,5 +560,11 @@ onMounted(async () => {
 .short {
   color: #d9534f;
   font-weight: 600;
+}
+.plan-text {
+  max-height: 110px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
 }
 </style>
