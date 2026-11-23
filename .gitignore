@@ -31,3 +31,6 @@ desktop.ini
 _extract.txt
 *.tmp
 *.bak
+
+# ---------- 本地文档产物 ----------
+*.xlsx
