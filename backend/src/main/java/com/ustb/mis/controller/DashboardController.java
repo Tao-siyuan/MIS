@@ -22,6 +22,7 @@ import com.ustb.mis.mapper.MajorProgramMapper;
 import com.ustb.mis.mapper.NewCourseApplyMapper;
 import com.ustb.mis.mapper.ScheduleConflictMapper;
 import com.ustb.mis.mapper.TeacherMapper;
+import com.ustb.mis.mapper.ViewMapper;
 import com.ustb.mis.mapper.TeachingClassMapper;
 import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.UserContext;
@@ -52,12 +53,14 @@ public class DashboardController {
     private final DualEnrollMapper dualEnrollMapper;
     private final ClassInfoMapper classInfoMapper;
     private final TeacherMapper teacherMapper;
+    private final ViewMapper viewMapper;
 
     public DashboardController(CollegeMapper collegeMapper, MajorMapper majorMapper, CourseMapper courseMapper,
                                MajorProgramMapper programMapper, TeachingClassMapper tcMapper,
                                ScheduleConflictMapper conflictMapper, NewCourseApplyMapper applyMapper,
                                AuditLogMapper logMapper, DualEnrollMapper dualEnrollMapper,
-                               ClassInfoMapper classInfoMapper, TeacherMapper teacherMapper) {
+                               ClassInfoMapper classInfoMapper, TeacherMapper teacherMapper,
+                               ViewMapper viewMapper) {
         this.collegeMapper = collegeMapper;
         this.majorMapper = majorMapper;
         this.courseMapper = courseMapper;
@@ -69,23 +72,45 @@ public class DashboardController {
         this.dualEnrollMapper = dualEnrollMapper;
         this.classInfoMapper = classInfoMapper;
         this.teacherMapper = teacherMapper;
+        this.viewMapper = viewMapper;
     }
 
     @GetMapping("/overview")
     public Result<Map<String, Object>> overview() {
         LoginUser user = UserContext.require();
         Map<String, Object> data = new HashMap<>();
+        // 学院教务（数据范围 2）：工作台指标全部收敛到本学院（学院教务修改意见第 4 条）
+        final boolean collegeScope = "2".equals(user.getDataScope()) && user.getCollegeId() != null;
+        final List<String> ownMajorIds = collegeScope
+                ? majorMapper.selectList(Wrappers.<Major>lambdaQuery()
+                        .eq(Major::getCollegeId, user.getCollegeId())).stream()
+                        .map(Major::getMajorId).toList()
+                : List.of();
+        final List<String> ownCourseIds = collegeScope
+                ? courseMapper.selectList(Wrappers.<Course>lambdaQuery()
+                        .eq(Course::getOpenCollege, user.getCollegeId())).stream()
+                        .map(Course::getCourseId).toList()
+                : List.of();
         data.put("collegeCount", collegeMapper.selectCount(Wrappers.<College>lambdaQuery()
                 .eq(College::getCollegeStatus, "1")));
-        data.put("majorCount", majorMapper.selectCount(Wrappers.<Major>lambdaQuery()
-                .eq(Major::getMajorStatus, "1")));
-        data.put("courseCount", courseMapper.selectCount(Wrappers.<Course>lambdaQuery()
-                .eq(Course::getCourseStatus, "1")));
-        data.put("programCount", programMapper.selectCount(Wrappers.<MajorProgram>lambdaQuery()
-                .eq(MajorProgram::getPlanStatus, "3")));
-        data.put("tcCount", tcMapper.selectCount(Wrappers.<TeachingClass>lambdaQuery()));
-        data.put("conflictCount", conflictMapper.selectCount(Wrappers.<ScheduleConflict>lambdaQuery()
-                .eq(ScheduleConflict::getHandleStatus, "0")));
+        data.put("majorCount", collegeScope
+                ? countIf(!ownMajorIds.isEmpty(), () -> majorMapper.selectCount(Wrappers.<Major>lambdaQuery()
+                        .eq(Major::getMajorStatus, "1").in(Major::getMajorId, ownMajorIds)))
+                : majorMapper.selectCount(Wrappers.<Major>lambdaQuery().eq(Major::getMajorStatus, "1")));
+        data.put("courseCount", collegeScope
+                ? countIf(!ownCourseIds.isEmpty(), () -> courseMapper.selectCount(Wrappers.<Course>lambdaQuery()
+                        .eq(Course::getCourseStatus, "1").in(Course::getCourseId, ownCourseIds)))
+                : courseMapper.selectCount(Wrappers.<Course>lambdaQuery().eq(Course::getCourseStatus, "1")));
+        data.put("programCount", collegeScope
+                ? countIf(!ownMajorIds.isEmpty(), () -> programMapper.selectCount(Wrappers.<MajorProgram>lambdaQuery()
+                        .eq(MajorProgram::getPlanStatus, "3").in(MajorProgram::getMajorId, ownMajorIds)))
+                : programMapper.selectCount(Wrappers.<MajorProgram>lambdaQuery().eq(MajorProgram::getPlanStatus, "3")));
+        data.put("tcCount", collegeScope
+                ? countIf(!ownCourseIds.isEmpty(), () -> tcMapper.selectCount(Wrappers.<TeachingClass>lambdaQuery()
+                        .in(TeachingClass::getCourseId, ownCourseIds)))
+                : tcMapper.selectCount(Wrappers.<TeachingClass>lambdaQuery()));
+        data.put("conflictCount", collegeScope ? collegeConflictCount(ownCourseIds) : conflictMapper.selectCount(
+                Wrappers.<ScheduleConflict>lambdaQuery().eq(ScheduleConflict::getHandleStatus, "0")));
         data.put("pendingApply", applyMapper.selectCount(Wrappers.<com.ustb.mis.entity.NewCourseApply>lambdaQuery()
                 .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "3")));
 
@@ -108,8 +133,13 @@ public class DashboardController {
             }
         }
         if (user.hasPerm("P21")) {
-            long pending = applyMapper.selectCount(Wrappers.<com.ustb.mis.entity.NewCourseApply>lambdaQuery()
-                    .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "0"));
+            long pending;
+            if ("2".equals(user.getDataScope()) && user.getCollegeId() != null) {
+                pending = viewMapper.listNewCourseApplies("0", null, user.getCollegeId()).size();
+            } else {
+                pending = applyMapper.selectCount(Wrappers.<com.ustb.mis.entity.NewCourseApply>lambdaQuery()
+                        .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "0"));
+            }
             if (pending > 0) {
                 todo.add(Map.of("title", "新增课程申报待学院初审", "count", pending, "path", "/course-apply"));
             }
@@ -138,7 +168,31 @@ public class DashboardController {
         data.put("todo", todo);
         data.put("welcome", user.getRealName() + "（" + user.getRoleName() + "）");
         data.put("profile", profileOf(user));
+        data.put("collegeScope", collegeScope);
         return Result.ok(data);
+    }
+
+    /** 空集合时直接返回 0，避免生成非法 IN () 语句 */
+    private long countIf(boolean cond, java.util.function.Supplier<Long> counter) {
+        return cond ? counter.get() : 0L;
+    }
+
+    /** 本学院教学班（含对方教学班）产生的未处理冲突数 */
+    private long collegeConflictCount(List<String> ownCourseIds) {
+        if (ownCourseIds.isEmpty()) {
+            return 0L;
+        }
+        List<String> tcIds = tcMapper.selectList(Wrappers.<TeachingClass>lambdaQuery()
+                        .in(TeachingClass::getCourseId, ownCourseIds)).stream()
+                .map(TeachingClass::getTcId).toList();
+        if (tcIds.isEmpty()) {
+            return 0L;
+        }
+        return conflictMapper.selectCount(Wrappers.<ScheduleConflict>lambdaQuery()
+                .eq(ScheduleConflict::getHandleStatus, "0")
+                .and(w -> w.in(ScheduleConflict::getTcId, tcIds)
+                        .or()
+                        .in(ScheduleConflict::getOtherTcId, tcIds)));
     }
 
     /** 个人信息卡：姓名、学号/工号、学院、专业/系、班级等（教师端与学生端工作台使用） */

@@ -237,7 +237,7 @@ async function submit() {
 /** 学院教务初审：通过后转教务处备案，驳回须填理由 */
 async function collegeReview(row, pass) {
   const { value } = await ElMessageBox.prompt(
-    pass === '1' ? '学院初审意见（通过后交教务处备案）' : '请填写驳回理由',
+    pass === '1' ? '学院初审意见' : '请填写驳回理由',
     `${pass === '1' ? '初审通过' : '初审驳回'}：${row.courseName}`,
     {
       inputValue: pass === '1' ? '调课理由充分，同意上报教务处备案' : '',

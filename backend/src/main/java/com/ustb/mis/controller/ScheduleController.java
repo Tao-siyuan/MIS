@@ -6,7 +6,9 @@ import com.ustb.mis.common.Result;
 import com.ustb.mis.entity.Classroom;
 import com.ustb.mis.entity.ScheduleRule;
 import com.ustb.mis.mapper.ClassroomMapper;
+import com.ustb.mis.security.LoginUser;
 import com.ustb.mis.security.RequirePerm;
+import com.ustb.mis.security.UserContext;
 import com.ustb.mis.service.AuditService;
 import com.ustb.mis.service.ScheduleService;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -122,8 +124,12 @@ public class ScheduleController {
     @GetMapping("/rooms")
     @RequirePerm({"P09", "P08", "P12"})
     public Result<List<Classroom>> rooms(@RequestParam(required = false) String status) {
+        LoginUser user = UserContext.require();
+        // 学院教务只能查询本学院管理的教室（学院教务修改意见：教室课表限定本学院教室）
+        String college = "2".equals(user.getDataScope()) ? user.getCollegeId() : null;
         return Result.ok(classroomMapper.selectList(Wrappers.<Classroom>lambdaQuery()
                 .eq(status != null && !status.isBlank(), Classroom::getRoomStatus, status)
+                .eq(college != null && !college.isBlank(), Classroom::getCollegeId, college)
                 .orderByAsc(Classroom::getRoomId)));
     }
 

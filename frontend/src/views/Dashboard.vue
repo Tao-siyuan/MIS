@@ -1,7 +1,7 @@
 <template>
   <div>
     <h2 class="page-title">工作台</h2>
-    <p class="page-desc">{{ data.welcome }}，以下为专业设置与排课运行概览。</p>
+    <p class="page-desc">{{ data.welcome }}，以下为{{ isCollegeOfficer ? '本学院' : '' }}专业设置与排课运行概览。</p>
 
     <!-- 教师端 / 学生端：以个人信息卡替代统计指标（教师端修改意见第 2 条） -->
     <div v-if="showProfile" class="panel profile-panel">
@@ -25,7 +25,8 @@
     </div>
 
     <div v-else class="stat-grid">
-      <div class="stat-card">
+      <!-- 学院教务工作台不展示全校学院数，其余指标由后端收敛为本学院范围 -->
+      <div v-if="!isCollegeOfficer" class="stat-card">
         <div class="label">在办学院</div>
         <div class="value">{{ data.collegeCount || 0 }}<span class="unit">个</span></div>
       </div>
@@ -111,7 +112,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import api from '../api'
-import { userStore } from '../store/user'
+import { hasPerm, userStore } from '../store/user'
 
 const user = userStore()
 const data = ref({})
@@ -121,6 +122,8 @@ const term = ref('')
 const isAdmin = computed(() => user.isAdmin())
 const isStudent = computed(() => user.isStudent())
 const isTeacher = computed(() => user.isTeacher())
+/** 学院教务（P21 且非校级）：工作台指标为本学院范围 */
+const isCollegeOfficer = computed(() => hasPerm('P21') && !hasPerm('P07') && !isAdmin.value)
 /** 教师与学生工作台展示个人信息卡，教务/管理员仍展示统计指标 */
 const showProfile = computed(() => isStudent.value || isTeacher.value)
 const showSchedule = computed(() => isStudent.value || isTeacher.value)

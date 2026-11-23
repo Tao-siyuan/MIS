@@ -19,6 +19,8 @@ public class Classroom {
     private String roomId;
     private String roomName;
     private String building;
+    /** 管理学院编号：学院专属教室填学院号，公共教学楼为空由教务处统一调配 */
+    private String collegeId;
     private Integer capacity;
     private String roomType;
     private String availableTime;
