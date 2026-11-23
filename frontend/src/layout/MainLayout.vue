@@ -51,7 +51,7 @@
         <el-sub-menu v-if="show(['P15', 'P16'])" index="eval">
           <template #title><el-icon><DataAnalysis /></el-icon><span>评价与监督</span></template>
           <el-menu-item v-if="show(['P15'])" index="/eval">课程评价</el-menu-item>
-          <el-menu-item v-if="show(['P16'])" index="/roles">角色与权限</el-menu-item>
+          <el-menu-item v-if="show(['P20'])" index="/roles">角色与权限</el-menu-item>
           <el-menu-item v-if="show(['P16'])" index="/logs">操作日志</el-menu-item>
         </el-sub-menu>
       </el-menu>
@@ -83,7 +83,7 @@
       </el-header>
       <el-main class="main">
         <router-view v-slot="{ Component }">
-          <component :is="Component" />
+          <component :is="Component" :key="route.path" />
         </router-view>
       </el-main>
     </el-container>

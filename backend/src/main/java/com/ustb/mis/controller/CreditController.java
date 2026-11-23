@@ -110,6 +110,10 @@ public class CreditController {
             if (source == null) {
                 throw new BizException("原修课程不存在：" + sourceCourseId);
             }
+            requireSource(sourceCourseId, fromMajor, source);
+            if (sourceCourseId != null && sourceCourseId.equals(targetCourseId)) {
+                throw new BizException("原修课程与认定课程不能相同");
+            }
             Course target = requireTarget(targetCourseId, toMajor);
             BigDecimal targetCredit = item.get("targetCredit") == null
                     ? target.getCredit() : new BigDecimal(str(item.get("targetCredit")));
@@ -136,6 +140,16 @@ public class CreditController {
         applyMapper.updateById(update);
         auditService.record("01", "credit_apply:" + apply.getApplyId(), null, apply);
         return Result.ok();
+    }
+
+    /** 原修课程必须属于原专业培养方案：只允许“原专业课程 → 转入专业课程”的单向认定 */
+    private void requireSource(String sourceCourseId, String fromMajor, Course source) {
+        long inFrom = programCourseMapper.selectCount(Wrappers.<ProgramCourse>lambdaQuery()
+                .eq(ProgramCourse::getCourseId, sourceCourseId)
+                .eq(ProgramCourse::getMajorId, fromMajor));
+        if (inFrom == 0) {
+            throw new BizException("原修课程不属于原专业培养方案，不能转入：" + source.getCourseName());
+        }
     }
 
     /** 目标课程必须存在且属于转入专业培养方案 */
@@ -212,7 +226,9 @@ public class CreditController {
         return Result.ok();
     }
 
+    /** 学分认定审核仅授予 P24（教务处/学院教务员），学生只可提交申请（P14） */
     @PostMapping("/{id}/audit")
+    @RequirePerm("P24")
     @Transactional
     public Result<Void> audit(@PathVariable String id, @RequestBody Map<String, Object> body) {
         CreditApply apply = applyMapper.selectById(id);

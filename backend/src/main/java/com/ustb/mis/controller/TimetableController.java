@@ -41,6 +41,35 @@ public class TimetableController {
                 "select distinct term from teaching_class order by term desc", String.class));
     }
 
+    /**
+     * 已修课程：学生查看本人所在班级在往期学期已完成（课表已发布）的课程清单。
+     */
+    @GetMapping("/history")
+    @RequirePerm("P12")
+    public Result<List<Map<String, Object>>> history(@RequestParam(required = false) String classId,
+                                                     @RequestParam(required = false) String beforeTerm) {
+        LoginUser user = UserContext.require();
+        String target = user.getClassId() != null ? user.getClassId() : classId;
+        if (target == null) {
+            return Result.ok(List.of());
+        }
+        String current = beforeTerm;
+        if (current == null || current.isBlank()) {
+            List<String> terms = jdbc.queryForList(
+                    "select distinct term from teaching_class order by term desc", String.class);
+            current = terms.isEmpty() ? "" : terms.get(0);
+        }
+        String sql = "select tc.term, tc.tc_id as tcId, c.course_id as courseId, c.course_name as courseName, "
+                + "c.credit, c.assess_type as assessType, tc.hours, tc.week_count as weekCount, "
+                + "t.teacher_name as teacherName, tc.tc_type as tcType "
+                + "from teaching_class tc join course c on c.course_id = tc.course_id "
+                + "left join teacher t on t.teacher_id = tc.teacher_id "
+                + "where tc.class_ids like ? and tc.term < ? and tc.tc_status = '4' "
+                + "order by tc.term desc, c.course_id";
+        List<Map<String, Object>> rows = jdbc.queryForList(sql, "%" + target + "%", current);
+        return Result.ok(rows);
+    }
+
     @GetMapping
     @RequirePerm({"P12", "P09"})
     public Result<Map<String, Object>> timetable(@RequestParam String term,

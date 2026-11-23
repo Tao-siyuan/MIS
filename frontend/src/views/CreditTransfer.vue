@@ -35,7 +35,13 @@
         <el-table-column label="操作" width="170" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">明细</el-button>
-            <el-button v-if="row.auditStatus === '0'" link type="success" size="small" @click="openAudit(row)">
+            <el-button
+              v-if="row.auditStatus === '0' && hasPerm('P24')"
+              link
+              type="success"
+              size="small"
+              @click="openAudit(row)"
+            >
               审核
             </el-button>
           </template>
@@ -182,7 +188,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
-import { userStore } from '../store/user'
+import { hasPerm, userStore } from '../store/user'
 
 const user = userStore()
 const rows = ref([])

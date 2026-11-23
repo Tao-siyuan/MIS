@@ -33,7 +33,7 @@
     </div>
 
     <el-row :gutter="16">
-      <el-col :span="14">
+      <el-col :span="isAdmin ? 14 : 24">
         <div class="panel">
           <div class="panel-title">待办事项</div>
           <el-empty v-if="!data.todo || data.todo.length === 0" description="暂无待办，业务运行正常" :image-size="70" />
@@ -46,21 +46,33 @@
           </div>
         </div>
 
-        <div class="panel">
-          <div class="panel-title">系统流程</div>
-          <el-steps :active="4" align-center>
-            <el-step title="专业设置" description="培养方案制定与修订" />
-            <el-step title="课程设置" description="课程库与开课审核" />
-            <el-step title="排课" description="自动排课与冲突处理" />
-            <el-step title="课表服务" description="多维查询与调课" />
-            <el-step title="评价闭环" description="评教反馈方案修订" />
-          </el-steps>
+        <div v-if="isStudent" class="panel">
+          <div class="panel-title">今日日程 · {{ todayLabel }}</div>
+          <el-empty
+            v-if="todayCourses.length === 0"
+            description="今天没有课程安排"
+            :image-size="70"
+          />
+          <div v-for="(c, i) in todayCourses" :key="i" class="schedule-item">
+            <div class="schedule-time">{{ c.startSlot }}-{{ c.endSlot }} 节</div>
+            <div class="schedule-main">
+              <div class="schedule-course">{{ c.courseName }}</div>
+              <div class="muted">
+                {{ c.teacherName }} · {{ c.roomName }} · {{ c.weekRange }}
+              </div>
+            </div>
+          </div>
         </div>
       </el-col>
 
-      <el-col :span="10">
+      <el-col v-if="isAdmin" :span="10">
         <div class="panel">
-          <div class="panel-title">最近操作</div>
+          <div class="panel-title">
+            最近操作
+            <el-button link type="primary" size="small" style="float: right" @click="$router.push('/logs')">
+              查看全部日志
+            </el-button>
+          </div>
           <el-empty v-if="!data.recentLogs || data.recentLogs.length === 0" description="暂无日志" :image-size="60" />
           <div v-for="log in data.recentLogs" :key="log.logId" class="log-item">
             <div class="log-head">
@@ -79,16 +91,51 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import api from '../api'
+import { userStore } from '../store/user'
 
+const user = userStore()
 const data = ref({})
+const todayCourses = ref([])
+const term = ref('')
+
+/** 仅系统管理员可在工作台查看最近操作，其余角色只保留待办（可去日志页按权限回溯） */
+const isAdmin = computed(() => user.isAdmin())
+const isStudent = computed(() => user.isStudent())
+
+const dayNames = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+const todayWeekday = computed(() => {
+  const d = new Date().getDay()
+  return d === 0 ? 7 : d
+})
+const todayLabel = computed(() => {
+  const d = new Date()
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${dayNames[todayWeekday.value]}`
+})
 
 const operTypeName = (code) =>
-  ({ '01': '新增', '02': '修改', '03': '删除', '04': '审批', '05': '发布', '06': '导出' }[code] || code)
+  ({ '01': '新增', '02': '修改', '03': '删除', '04': '审批', '05': '发布', '06': '导出', '07': '登录', '08': '登出' }[code] || code)
+
+async function loadTodayCourses() {
+  try {
+    const terms = await api.terms()
+    term.value = terms?.[0] || ''
+    if (!term.value) return
+    const res = await api.timetable({ term: term.value, view: 'self' })
+    todayCourses.value = (res.rows || [])
+      .filter((r) => Number(r.weekDay) === todayWeekday.value)
+      .sort((a, b) => Number(a.startSlot) - Number(b.startSlot))
+  } catch (e) {
+    todayCourses.value = []
+  }
+}
 
 onMounted(async () => {
   data.value = await api.overview()
+  if (isStudent.value) {
+    await loadTodayCourses()
+  }
 })
 </script>
 
@@ -112,6 +159,26 @@ onMounted(async () => {
 
 .todo-title {
   margin-left: 8px;
+}
+
+.schedule-item {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--mis-border);
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.schedule-time {
+  min-width: 74px;
+  font-weight: 600;
+  color: var(--mis-primary);
+}
+
+.schedule-course {
+  font-weight: 600;
+  margin-bottom: 2px;
 }
 
 .log-item {

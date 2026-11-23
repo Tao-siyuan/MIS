@@ -7,55 +7,76 @@
     </p>
 
     <div class="panel">
-      <div class="toolbar">
-        <el-select v-model="term" style="width: 150px" @change="load">
-          <el-option v-for="t in terms" :key="t" :label="t" :value="t" />
-        </el-select>
-        <el-radio-group v-model="view" @change="onViewChange">
-          <el-radio-button value="self">我的课表</el-radio-button>
-          <el-radio-button v-if="!isStudent" value="class">班级</el-radio-button>
-          <el-radio-button v-if="!isStudent" value="teacher">教师</el-radio-button>
-          <el-radio-button v-if="!isStudent" value="room">教室</el-radio-button>
-        </el-radio-group>
-        <el-select v-if="view === 'class'" v-model="key" filterable placeholder="选择班级" style="width: 180px" @change="load">
-          <el-option v-for="c in classes" :key="c.classId" :label="c.className" :value="c.classId" />
-        </el-select>
-        <el-select v-if="view === 'teacher'" v-model="key" filterable placeholder="选择教师" style="width: 180px" @change="load">
-          <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.teacherId}）`" :value="t.teacherId" />
-        </el-select>
-        <el-select v-if="view === 'room'" v-model="key" filterable placeholder="选择教室" style="width: 180px" @change="load">
-          <el-option v-for="r in rooms" :key="r.roomId" :label="r.roomName" :value="r.roomId" />
-        </el-select>
-        <span class="spacer" />
-        <el-button @click="exportCsv">导出课表</el-button>
-      </div>
+      <el-tabs v-model="tab">
+        <el-tab-pane label="周课表" name="week">
+          <div class="toolbar">
+            <el-select v-model="term" style="width: 150px" @change="load">
+              <el-option v-for="t in terms" :key="t" :label="t" :value="t" />
+            </el-select>
+            <el-radio-group v-model="view" @change="onViewChange">
+              <el-radio-button value="self">我的课表</el-radio-button>
+              <el-radio-button v-if="!isStudent" value="class">班级</el-radio-button>
+              <el-radio-button v-if="!isStudent" value="teacher">教师</el-radio-button>
+              <el-radio-button v-if="!isStudent" value="room">教室</el-radio-button>
+            </el-radio-group>
+            <el-select v-if="view === 'class'" v-model="key" filterable placeholder="选择班级" style="width: 180px" @change="load">
+              <el-option v-for="c in classes" :key="c.classId" :label="c.className" :value="c.classId" />
+            </el-select>
+            <el-select v-if="view === 'teacher'" v-model="key" filterable placeholder="选择教师" style="width: 180px" @change="load">
+              <el-option v-for="t in teachers" :key="t.teacherId" :label="`${t.teacherName}（${t.teacherId}）`" :value="t.teacherId" />
+            </el-select>
+            <el-select v-if="view === 'room'" v-model="key" filterable placeholder="选择教室" style="width: 180px" @change="load">
+              <el-option v-for="r in rooms" :key="r.roomId" :label="r.roomName" :value="r.roomId" />
+            </el-select>
+            <span class="spacer" />
+            <el-button :loading="exporting" @click="exportXlsx">导出课表（xlsx）</el-button>
+          </div>
 
-      <table class="timetable">
-        <thead>
-          <tr>
-            <th style="width: 80px">节次</th>
-            <th v-for="d in 5" :key="d">{{ dayName(d) }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="p in periods" :key="p">
-            <th>{{ p }}-{{ p + 1 }} 节</th>
-            <td v-for="d in 5" :key="d" class="cell">
-              <div
-                v-for="item in cellItems(d, p)"
-                :key="item.schedId"
-                class="tt-item"
-                :class="{ conflict: cellItems(d, p).length > 1 }"
-                @click="openDetail(item)"
-              >
-                <b>{{ item.courseName }}</b>
-                <span>{{ item.teacherName || '待定' }} · {{ item.roomName }}</span>
-                <span>{{ item.classIds }}</span>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+          <table class="timetable">
+            <thead>
+              <tr>
+                <th style="width: 80px">节次</th>
+                <th v-for="d in 5" :key="d">{{ dayName(d) }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in periods" :key="p">
+                <th>{{ p }}-{{ p + 1 }} 节</th>
+                <td v-for="d in 5" :key="d" class="cell">
+                  <div
+                    v-for="item in cellItems(d, p)"
+                    :key="item.schedId"
+                    class="tt-item"
+                    :class="{ conflict: cellItems(d, p).length > 1 }"
+                    @click="openDetail(item)"
+                  >
+                    <b>{{ item.courseName }}</b>
+                    <span>{{ item.teacherName || '待定' }} · {{ item.roomName }}</span>
+                    <span>{{ item.classIds }}</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="isStudent" label="已修课程" name="history">
+          <div class="toolbar">
+            <span class="muted">以下为往期学期已完成（课表已发布）的课程，共 {{ history.length }} 门</span>
+          </div>
+          <el-table :data="history" border size="small" max-height="520">
+            <el-table-column prop="term" label="学期" width="130" />
+            <el-table-column prop="courseId" label="课程号" width="100" />
+            <el-table-column prop="courseName" label="课程名称" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="credit" label="学分" width="80" />
+            <el-table-column prop="hours" label="学时" width="80" />
+            <el-table-column label="考核方式" width="100">
+              <template #default="{ row }">{{ { 1: '考试', 2: '考查' }[row.assessType] || '-' }}</template>
+            </el-table-column>
+            <el-table-column prop="teacherName" label="任课教师" width="120" />
+          </el-table>
+        </el-tab-pane>
+      </el-tabs>
     </div>
 
     <el-dialog v-model="detailDialog" title="课程安排详情" width="460px">
@@ -81,19 +102,23 @@ import api from '../api'
 import { userStore } from '../store/user'
 
 const user = userStore()
+const tab = ref('week')
 const term = ref('2026-2027-1')
 const terms = ref(['2026-2027-1'])
 const view = ref('self')
 const key = ref('')
 const rows = ref([])
+const history = ref([])
+const historyLoaded = ref(false)
 const classes = ref([])
 const teachers = ref([])
 const rooms = ref([])
 const detailDialog = ref(false)
 const current = ref(null)
+const exporting = ref(false)
 const periods = [1, 3, 5, 7, 9, 11]
 
-const isStudent = computed(() => !user.user?.teacherId && user.user?.dataScope === '3')
+const isStudent = computed(() => user.isStudent())
 
 const dayName = (d) => ({ 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五' }[d] || '')
 
@@ -119,10 +144,19 @@ async function load() {
     const data = await api.timetable(params)
     rows.value = data.rows || []
   } catch (e) {
-    // 学生可能没有班级或教师没有分配教学班，此处友好提示而非空白报错（P2-04）
+    // 学生可能没有班级或教师没有分配教学班，此处友好提示而非空白报错
     rows.value = []
     ElMessage.warning(e?.response?.data?.msg || '暂无可查询的课表数据')
   }
+}
+
+async function loadHistory() {
+  try {
+    history.value = await api.timetableHistory()
+  } catch (e) {
+    history.value = []
+  }
+  historyLoaded.value = true
 }
 
 function openDetail(item) {
@@ -130,20 +164,62 @@ function openDetail(item) {
   detailDialog.value = true
 }
 
-async function exportCsv() {
-  await api.timetable({ term: term.value, view: view.value, key: view.value === 'self' ? undefined : key.value, export: 1 })
-  const header = ['课程', '教师', '班级', '星期', '节次', '周次', '教室']
-  const lines = rows.value.map((r) =>
-    [r.courseName, r.teacherName, r.classIds, dayName(Number(r.weekDay)), `${r.startSlot}-${r.endSlot}`, r.weekRange, r.roomName]
-      .map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`)
-      .join(',')
-  )
-  const blob = new Blob(['\ufeff' + [header.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = `课表_${term.value}.csv`
-  link.click()
-  ElMessage.success('课表已导出，导出行为已记录')
+/**
+ * 导出 xlsx：第一个工作表与页面周课表一致（节次 × 星期网格），第二个工作表为课程明细。
+ */
+async function exportXlsx() {
+  exporting.value = true
+  try {
+    await api.timetable({
+      term: term.value,
+      view: view.value,
+      key: view.value === 'self' ? undefined : key.value,
+      export: 1
+    })
+    const XLSX = await import('xlsx')
+    const days = [1, 2, 3, 4, 5]
+    const grid = [['节次', ...days.map((d) => dayName(d))]]
+    for (const p of periods) {
+      const line = [`${p}-${p + 1} 节`]
+      for (const d of days) {
+        const items = cellItems(d, p)
+        line.push(
+          items
+            .map((i) => `${i.courseName}\n${i.teacherName || '待定'} · ${i.roomName}\n${i.classIds}`)
+            .join('\n')
+        )
+      }
+      grid.push(line)
+    }
+    const detail = [['课程', '教师', '班级', '星期', '节次', '周次', '教室', '学分']]
+    rows.value.forEach((r) =>
+      detail.push([
+        r.courseName,
+        r.teacherName,
+        r.classIds,
+        dayName(Number(r.weekDay)),
+        `${r.startSlot}-${r.endSlot}`,
+        r.weekRange,
+        r.roomName,
+        r.credit
+      ])
+    )
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet(grid)
+    ws['!cols'] = [{ wch: 10 }, ...days.map(() => ({ wch: 24 }))]
+    ws['!rows'] = [{ hpt: 20 }, ...periods.map(() => ({ hpt: 60 }))]
+    XLSX.utils.book_append_sheet(wb, ws, '周课表')
+    const ws2 = XLSX.utils.aoa_to_sheet(detail)
+    ws2['!cols'] = [22, 12, 14, 8, 10, 10, 10, 8].map((wch) => ({ wch }))
+    XLSX.utils.book_append_sheet(wb, ws2, '课程明细')
+    const suffix = view.value === 'self' ? '' : `_${key.value || ''}`
+    XLSX.writeFile(wb, `课表_${term.value}${suffix}.xlsx`)
+    ElMessage.success('课表已导出为 Excel，导出行为已记录')
+  } catch (e) {
+    ElMessage.error('导出失败：' + (e?.message || '未知错误'))
+  } finally {
+    exporting.value = false
+  }
 }
 
 onMounted(async () => {
@@ -157,7 +233,7 @@ onMounted(async () => {
     teachers.value = await api.teachers()
     rooms.value = await api.rooms()
   }
-  // 默认视图按角色决定：教师看本人课表，教务看班级课表（P2-04）
+  // 默认视图按角色决定：教师看本人课表，教务看班级课表
   if (user.user?.teacherId) {
     view.value = 'teacher'
     key.value = user.user.teacherId
@@ -166,5 +242,8 @@ onMounted(async () => {
     key.value = classes.value[0]?.classId || ''
   }
   await load()
+  if (isStudent.value) {
+    await loadHistory()
+  }
 })
 </script>

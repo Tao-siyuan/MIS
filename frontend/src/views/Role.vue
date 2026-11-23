@@ -165,7 +165,8 @@ const permList = [
   { code: 'P20', name: '角色与用户配置' },
   { code: 'P21', name: '新增课程学院初审' },
   { code: 'P22', name: '跨院课程确认' },
-  { code: 'P23', name: '通识课程承接确认' }
+  { code: 'P23', name: '通识课程承接确认' },
+  { code: 'P24', name: '学分认定审核' }
 ]
 const permName = (code) => permList.find((p) => p.code === code)?.name || code
 

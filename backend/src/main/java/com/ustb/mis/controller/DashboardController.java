@@ -5,6 +5,7 @@ import com.ustb.mis.common.Result;
 import com.ustb.mis.entity.AuditLog;
 import com.ustb.mis.entity.College;
 import com.ustb.mis.entity.Course;
+import com.ustb.mis.entity.DualEnroll;
 import com.ustb.mis.entity.Major;
 import com.ustb.mis.entity.MajorProgram;
 import com.ustb.mis.entity.ScheduleConflict;
@@ -12,6 +13,7 @@ import com.ustb.mis.entity.TeachingClass;
 import com.ustb.mis.mapper.AuditLogMapper;
 import com.ustb.mis.mapper.CollegeMapper;
 import com.ustb.mis.mapper.CourseMapper;
+import com.ustb.mis.mapper.DualEnrollMapper;
 import com.ustb.mis.mapper.MajorMapper;
 import com.ustb.mis.mapper.MajorProgramMapper;
 import com.ustb.mis.mapper.NewCourseApplyMapper;
@@ -43,11 +45,12 @@ public class DashboardController {
     private final ScheduleConflictMapper conflictMapper;
     private final NewCourseApplyMapper applyMapper;
     private final AuditLogMapper logMapper;
+    private final DualEnrollMapper dualEnrollMapper;
 
     public DashboardController(CollegeMapper collegeMapper, MajorMapper majorMapper, CourseMapper courseMapper,
                                MajorProgramMapper programMapper, TeachingClassMapper tcMapper,
                                ScheduleConflictMapper conflictMapper, NewCourseApplyMapper applyMapper,
-                               AuditLogMapper logMapper) {
+                               AuditLogMapper logMapper, DualEnrollMapper dualEnrollMapper) {
         this.collegeMapper = collegeMapper;
         this.majorMapper = majorMapper;
         this.courseMapper = courseMapper;
@@ -56,6 +59,7 @@ public class DashboardController {
         this.conflictMapper = conflictMapper;
         this.applyMapper = applyMapper;
         this.logMapper = logMapper;
+        this.dualEnrollMapper = dualEnrollMapper;
     }
 
     @GetMapping("/overview")
@@ -74,11 +78,17 @@ public class DashboardController {
         data.put("conflictCount", conflictMapper.selectCount(Wrappers.<ScheduleConflict>lambdaQuery()
                 .eq(ScheduleConflict::getHandleStatus, "0")));
         data.put("pendingApply", applyMapper.selectCount(Wrappers.<com.ustb.mis.entity.NewCourseApply>lambdaQuery()
-                .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "0")));
+                .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "3")));
 
-        List<AuditLog> logs = logMapper.selectList(Wrappers.<AuditLog>lambdaQuery()
-                .orderByDesc(AuditLog::getOperTime).last("limit 8"));
-        data.put("recentLogs", logs == null ? new ArrayList<>() : logs);
+        // 最近操作仅系统管理员可见，其余角色只提供待办（P1-09 数据最小化）
+        boolean admin = "R01".equals(user.getRoleId()) || user.hasPerm("P20");
+        if (admin) {
+            List<AuditLog> logs = logMapper.selectList(Wrappers.<AuditLog>lambdaQuery()
+                    .orderByDesc(AuditLog::getOperTime).last("limit 8"));
+            data.put("recentLogs", logs == null ? new ArrayList<>() : logs);
+        } else {
+            data.put("recentLogs", new ArrayList<>());
+        }
 
         List<Map<String, Object>> todo = new ArrayList<>();
         if (user.hasPerm("P03")) {
@@ -88,11 +98,25 @@ public class DashboardController {
                 todo.add(Map.of("title", "培养方案待审核", "count", pending, "path", "/programs"));
             }
         }
-        if (user.hasPerm("P07")) {
+        if (user.hasPerm("P21")) {
             long pending = applyMapper.selectCount(Wrappers.<com.ustb.mis.entity.NewCourseApply>lambdaQuery()
                     .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "0"));
             if (pending > 0) {
-                todo.add(Map.of("title", "新增课程申报待审批", "count", pending, "path", "/course-apply"));
+                todo.add(Map.of("title", "新增课程申报待学院初审", "count", pending, "path", "/course-apply"));
+            }
+        }
+        if (user.hasPerm("P07")) {
+            long pending = applyMapper.selectCount(Wrappers.<com.ustb.mis.entity.NewCourseApply>lambdaQuery()
+                    .eq(com.ustb.mis.entity.NewCourseApply::getAuditStatus, "3"));
+            if (pending > 0) {
+                todo.add(Map.of("title", "新增课程申报待终审", "count", pending, "path", "/course-apply"));
+            }
+        }
+        if (user.hasPerm("P17")) {
+            long pending = dualEnrollMapper.selectCount(Wrappers.<DualEnroll>lambdaQuery()
+                    .eq(DualEnroll::getAuditStatus, "0"));
+            if (pending > 0) {
+                todo.add(Map.of("title", "双学位报名待录取审批", "count", pending, "path", "/dual"));
             }
         }
         if (user.hasPerm("P09")) {

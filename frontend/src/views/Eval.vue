@@ -89,7 +89,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane label="结果统计" name="stats">
+        <el-tab-pane v-if="canViewStats" label="结果统计" name="stats">
           <div class="toolbar">
             <el-select v-model="statsPlanId" placeholder="选择评教方案" style="width: 260px" @change="loadStats">
               <el-option
@@ -244,6 +244,8 @@ const user = userStore()
 /** 评教方案管理仅授予 P18（教务处），学生/教师默认进入各自页签（P0-02、P2-11） */
 const canManage = computed(() => user.hasPerm('P18'))
 const isTeacher = computed(() => !!user.user?.teacherId)
+/** 结果统计只对教务处与教师开放，学生仅能看到自己的评教任务（避免越权查看他人评价） */
+const canViewStats = computed(() => canManage.value || isTeacher.value)
 const tab = ref(canManage.value ? 'plan' : isTeacher.value ? 'stats' : 'task')
 const plans = ref([])
 const tasks = ref([])

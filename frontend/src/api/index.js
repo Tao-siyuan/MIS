@@ -5,12 +5,20 @@ import router from '../router'
 const http = axios.create({ baseURL: '/api', timeout: 30000 })
 
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('mis_token')
+  const token = sessionStorage.getItem('mis_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
+
+function gotoLogin() {
+  sessionStorage.removeItem('mis_token')
+  sessionStorage.removeItem('mis_user')
+  if (router.currentRoute.value.path !== '/login') {
+    router.push('/login')
+  }
+}
 
 http.interceptors.response.use(
   (response) => {
@@ -19,17 +27,17 @@ http.interceptors.response.use(
       return body.data
     }
     if (body && body.code === 401) {
-      localStorage.removeItem('mis_token')
-      localStorage.removeItem('mis_user')
-      if (router.currentRoute.value.path !== '/login') {
-        router.push('/login')
-      }
+      gotoLogin()
     }
     ElMessage.error((body && body.msg) || '请求失败')
     return Promise.reject(new Error((body && body.msg) || '请求失败'))
   },
   (error) => {
-    ElMessage.error(error?.response?.data?.msg || error.message || '网络异常')
+    const msg = error?.response?.data?.msg || error.message || '网络异常'
+    if (error?.response?.status === 401) {
+      gotoLogin()
+    }
+    ElMessage.error(msg)
     return Promise.reject(error)
   }
 )
@@ -113,6 +121,7 @@ export const api = {
   // 课表
   terms: () => http.get('/timetable/terms'),
   timetable: (params) => http.get('/timetable', { params }),
+  timetableHistory: (params) => http.get('/timetable/history', { params }),
 
   // 辅修/双学位
   dualEnrolls: (params) => http.get('/dual/enrolls', { params }),
