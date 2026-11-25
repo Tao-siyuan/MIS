@@ -17,9 +17,6 @@
         <el-table-column prop="schoolYear" label="学年" width="110" />
         <el-table-column prop="courseId" label="课程号" width="100" />
         <el-table-column prop="courseName" label="课程名称" min-width="180" show-overflow-tooltip />
-        <el-table-column label="通识类别" width="110">
-          <template #default="{ row }">{{ categoryName(row.planCategory) }}</template>
-        </el-table-column>
         <el-table-column prop="suggestHours" label="建议学时" width="85" />
         <el-table-column prop="collegeName" label="承接学院" width="140" show-overflow-tooltip />
         <el-table-column prop="teacherName" label="拟任教师" width="100" />
@@ -89,14 +86,6 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="通识类别" required>
-          <el-select v-model="form.planCategory" style="width: 100%">
-            <el-option label="01 人文素养" value="01" />
-            <el-option label="02 自然科学" value="02" />
-            <el-option label="03 艺术体育" value="03" />
-            <el-option label="04 创新创业" value="04" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="建议学时">
           <el-input-number v-model="form.suggestHours" :min="8" :max="64" />
         </el-form-item>
@@ -141,8 +130,6 @@ const dialog = ref(false)
 const form = reactive({})
 
 const generalCourses = computed(() => courses.value.filter((c) => c.courseType === '15' && c.courseStatus === '1'))
-const categoryName = (c) =>
-  ({ '01': '人文素养', '02': '自然科学', '03': '艺术体育', '04': '创新创业' }[c] || c)
 
 async function load() {
   rows.value = await api.generalPlans({ schoolYear: schoolYear.value || undefined })
@@ -151,7 +138,7 @@ async function load() {
 
 function openCreate() {
   Object.keys(form).forEach((k) => delete form[k])
-  Object.assign(form, { schoolYear: schoolYear.value, planCategory: '01', suggestHours: 32 })
+  Object.assign(form, { schoolYear: schoolYear.value, suggestHours: 32 })
   dialog.value = true
 }
 

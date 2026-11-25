@@ -479,7 +479,6 @@ public class ProgramService {
         GeneralPlan plan = new GeneralPlan();
         plan.setSchoolYear(schoolYear);
         plan.setCourseId(courseId);
-        plan.setPlanCategory(str(body.get("planCategory")));
         plan.setSuggestHours(body.get("suggestHours") == null ? course.getTotalHours()
                 : Integer.valueOf(str(body.get("suggestHours"))));
         plan.setUndertakeCollege(str(body.get("undertakeCollege")));

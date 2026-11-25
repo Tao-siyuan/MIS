@@ -18,7 +18,6 @@ public class GeneralPlan {
     private String schoolYear;
     @TableId(type = IdType.INPUT)
     private String courseId;
-    private String planCategory;
     private Integer suggestHours;
     private String undertakeCollege;
     private String teacherId;

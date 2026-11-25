@@ -110,7 +110,7 @@ public interface ViewMapper {
     @Select("""
             <script>
             SELECT g.school_year AS schoolYear, g.course_id AS courseId, c.course_name AS courseName,
-                   c.credit AS credit, g.plan_category AS planCategory, g.suggest_hours AS suggestHours,
+                   c.credit AS credit, g.suggest_hours AS suggestHours,
                    g.undertake_college AS undertakeCollege, co.college_name AS collegeName,
                    g.teacher_id AS teacherId, t.teacher_name AS teacherName,
                    g.confirm_status AS confirmStatus, g.plan_status AS planStatus

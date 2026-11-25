@@ -147,7 +147,6 @@ CREATE TABLE program_course (
 CREATE TABLE general_plan (
     school_year       VARCHAR(9) NOT NULL COMMENT '学年',
     course_id         VARCHAR(8) NOT NULL COMMENT '课程号',
-    plan_category     VARCHAR(2) NOT NULL COMMENT '01人文素养/02自然科学/03艺术体育/04创新创业',
     suggest_hours     INT        NOT NULL COMMENT '建议学时',
     undertake_college VARCHAR(2) NOT NULL COMMENT '承接学院',
     teacher_id        VARCHAR(8)          COMMENT '拟任教师',
@@ -690,11 +689,11 @@ INSERT INTO program_course (major_id, grade, program_type, course_id, course_typ
 ('080717T','2026','1','0801001','14',3.0,48,'2028-2029-1',NULL,'2'),
 ('080717T','2026','1','0801002','14',2.5,40,'2028-2029-2','0801001','2');
 
-INSERT INTO general_plan (school_year, course_id, plan_category, suggest_hours, undertake_college, teacher_id, confirm_status, plan_status) VALUES
-('2026-2027','1701001','04',32,'17','A260014','1','2'),
-('2026-2027','1701002','04',16,'17','A260014','1','2'),
-('2026-2027','1701003','03',32,'17','A260014','0','1'),
-('2026-2027','1701004','01',32,'17','A260014','0','1');
+INSERT INTO general_plan (school_year, course_id, suggest_hours, undertake_college, teacher_id, confirm_status, plan_status) VALUES
+('2026-2027','1701001',32,'17','A260014','1','2'),
+('2026-2027','1701002',16,'17','A260014','1','2'),
+('2026-2027','1701003',32,'17','A260014','0','1'),
+('2026-2027','1701004',32,'17','A260014','0','1');
 
 INSERT INTO new_course_apply (apply_id, apply_user, course_name, course_type, dispatch_college, apply_reason, credit, hours, college_opinion, audit_status, course_id, audit_opinion, apply_time) VALUES
 ('NC20260001','A260001','智能硬件导论','17',NULL,'面向人工智能方向的新设素质拓展课程，衔接嵌入式与智能系统内容。',2.0,32,'课程内容与专业培养目标一致，同意上报教务处','3',NULL,NULL,'2026-11-10 09:20:00'),
