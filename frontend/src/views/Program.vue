@@ -3,7 +3,7 @@
     <h2 class="page-title">培养方案</h2>
     <p class="page-desc">
       方案以“专业编号＋年级＋方案类型”唯一标识，双学位方案与主修方案同结构。发布后方可生成教学班；
-      存在未确认的跨院课程或学分不达标时不允许提交评审（BR-07）。
+      提交评审与发布不做学分结构、跨院确认等前置校验，可在方案中随时查看学分统计作为参考。
     </p>
 
     <el-tabs v-model="pageTab" style="margin-bottom: 12px">
@@ -626,7 +626,7 @@ async function openVersions(row) {
 }
 
 async function submit(row) {
-  await ElMessageBox.confirm(`提交「${row.majorName} ${row.grade}级」方案评审？提交前将校核学分结构与跨院确认状态。`, '提交评审', {
+  await ElMessageBox.confirm(`提交「${row.majorName} ${row.grade}级」方案评审？`, '提交评审', {
     type: 'warning'
   })
   await api.submitProgram({ majorId: row.majorId, grade: row.grade, programType: row.programType })

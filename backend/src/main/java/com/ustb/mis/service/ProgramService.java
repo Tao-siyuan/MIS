@@ -371,23 +371,6 @@ public class ProgramService {
             throw new BizException("仅编制中的方案可提交评审");
         }
         requireProgramEditableByMajor(majorId);
-        long count = countCourses(majorId, grade, programType);
-        if (count == 0) {
-            throw new BizException("方案课程为空，不能提交评审");
-        }
-        long unconfirmed = programCourseMapper.selectCount(Wrappers.<ProgramCourse>lambdaQuery()
-                .eq(ProgramCourse::getMajorId, majorId)
-                .eq(ProgramCourse::getGrade, grade)
-                .eq(ProgramCourse::getProgramType, programType)
-                .eq(ProgramCourse::getCrossStatus, "0"));
-        if (unconfirmed > 0) {
-            throw new BizException("存在 " + unconfirmed + " 门未确认的跨院课程，不能提交（BR-07）");
-        }
-        Map<String, Object> check = creditCheck(majorId, grade, programType);
-        if (!Boolean.TRUE.equals(check.get("reach"))) {
-            Object issues = check.get("issues");
-            throw new BizException("学分结构未达标：" + String.join("；", (List<String>) issues));
-        }
         updateStatus(program, "1", null);
         auditService.record("04", key(majorId, grade, programType),
                 Map.of("planStatus", program.getPlanStatus()), Map.of("planStatus", "1"));
@@ -411,11 +394,6 @@ public class ProgramService {
         } else if ("3".equals(status)) {
             if (!"2".equals(current)) {
                 throw new BizException("仅“教务处审核”状态的方案可发布，请先完成院系初审");
-            }
-            Map<String, Object> check = creditCheck(majorId, grade, programType);
-            if (!Boolean.TRUE.equals(check.get("reach"))) {
-                Object issues = check.get("issues");
-                throw new BizException("学分结构未达标，不能发布：" + String.join("；", (List<String>) issues));
             }
         } else if ("0".equals(status)) {
             if ("3".equals(current)) {
