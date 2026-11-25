@@ -82,8 +82,8 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="开课学院" required>
-              <el-select v-model="form.openCollege" style="width: 100%">
-                <el-option v-for="c in colleges" :key="c.collegeId" :label="c.collegeName" :value="c.collegeId" />
+              <el-select v-model="form.openCollege" style="width: 100%" :disabled="!form.isNew">
+                <el-option v-for="c in ownColleges" :key="c.collegeId" :label="c.collegeName" :value="c.collegeId" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -94,8 +94,13 @@
         <el-row :gutter="12">
           <el-col :span="12">
             <el-form-item label="课程性质" required>
-              <el-select v-model="form.courseType" style="width: 100%">
-                <el-option v-for="t in types" :key="t.value" :label="t.label" :value="t.value" />
+              <el-select v-model="form.courseType" style="width: 100%" :disabled="!form.isNew">
+                <el-option
+                  v-for="t in (form.isNew ? creatableTypes : types)"
+                  :key="t.value"
+                  :label="t.label"
+                  :value="t.value"
+                />
               </el-select>
             </el-form-item>
           </el-col>
@@ -212,6 +217,27 @@ const types = [
 ]
 const typeName = (t) => (types.find((x) => x.value === t)?.label || t).replace(/^\d+\s/, '')
 
+/** 新增课程可选开课学院：院级教务与教师仅限本学院 */
+const ownColleges = computed(() => {
+  const scope = user.user?.dataScope
+  if ((scope === '2' || (scope === '3' && user.user?.teacherId)) && user.user?.collegeId) {
+    return colleges.value.filter((c) => c.collegeId === user.user.collegeId)
+  }
+  return colleges.value
+})
+
+/** 新增课程可选类别：系统管理员不限制；校级教务处 11/15；学院教务 12/13/14/16；教师 17 */
+const creatableTypes = computed(() => {
+  const roleId = user.user?.roleId
+  if (roleId === 'R01') return types
+  const scope = user.user?.dataScope
+  let codes
+  if (scope === '1') codes = ['11', '15']
+  else if (scope === '2') codes = ['12', '13', '14', '16']
+  else codes = ['17']
+  return types.filter((t) => codes.includes(t.value))
+})
+
 const roomTypes = [
   { value: '41', label: '机房' },
   { value: '42', label: '物理实验室' },
@@ -267,14 +293,16 @@ function openCreate() {
   Object.keys(form).forEach((k) => delete form[k])
   Object.assign(form, {
     isNew: true,
-    courseType: '13',
+    courseType: creatableTypes.value[0]?.value,
     assessType: '1',
     credit: 3,
     totalHours: 48,
     theoryHours: 48,
     practiceHours: 0,
     practiceRoomType: '',
-    openCollege: colleges.value[0]?.collegeId
+    openCollege: user.user?.dataScope === '2' || (user.user?.dataScope === '3' && user.user?.teacherId)
+      ? user.user?.collegeId
+      : colleges.value[0]?.collegeId
   })
   dialog.value = true
 }

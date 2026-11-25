@@ -88,6 +88,8 @@ public class CourseController {
         if (course.getCourseName() == null || course.getCourseName().isBlank()) {
             throw new BizException("课程名称不能为空");
         }
+        requireCourseTypeAllowed(course.getCourseType());
+        requireOpenCollegeAllowed(course.getOpenCollege());
         if (courseMapper.selectCount(Wrappers.<Course>lambdaQuery()
                 .eq(Course::getCourseName, course.getCourseName())) > 0) {
             throw new BizException("课程名称已存在");
@@ -189,9 +191,50 @@ public class CourseController {
         tcMapper.update(null, wrapper);
     }
 
+    /** 院级教务员与教师仅可为本学院新增课程；校级账号不限制 */
+    private void requireOpenCollegeAllowed(String collegeId) {
+        LoginUser user = UserContext.require();
+        if ("1".equals(user.getDataScope())) {
+            return;
+        }
+        if (!user.getCollegeId().equals(collegeId)) {
+            throw new BizException("仅可为本学院新增课程");
+        }
+    }
+
     /** 系统管理员(R01)与教务处管理员(R02)保留学时划分的修改权限 */
     private boolean isSchoolAdmin(LoginUser user) {
         return "R01".equals(user.getRoleId()) || "R02".equals(user.getRoleId());
+    }
+
+    /**
+     * 新增课程类别按岗位限制（系统管理员不限制）：
+     * 校级教务处→校级必修/通识；学院教务员→院级必修/专业必修/专业选修/实践教学；教师→素质拓展。
+     */
+    private void requireCourseTypeAllowed(String courseType) {
+        LoginUser user = UserContext.require();
+        if (isSchoolAdmin(user) && !"R02".equals(user.getRoleId())) {
+            return;
+        }
+        String allowed;
+        String label;
+        switch (user.getDataScope() == null ? "" : user.getDataScope()) {
+            case "1" -> {
+                allowed = "11,15";
+                label = "校级教务处仅可新增校级必修、通识课程";
+            }
+            case "2" -> {
+                allowed = "12,13,14,16";
+                label = "学院教务员仅可新增院级必修、专业必修、专业选修、实践教学课程";
+            }
+            default -> {
+                allowed = "17";
+                label = "教师仅可新增素质拓展课程";
+            }
+        }
+        if (courseType == null || !java.util.Arrays.asList(allowed.split(",")).contains(courseType)) {
+            throw new BizException(label);
+        }
     }
 
     /** 学时划分校验：理论按 2 学时递增；实践为 0 或不少于 8 学时且按 4 学时递增，并须指定实践教室类型 */
