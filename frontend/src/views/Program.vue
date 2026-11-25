@@ -6,6 +6,11 @@
       存在未确认的跨院课程或学分不达标时不允许提交评审（BR-07）。
     </p>
 
+    <el-tabs v-model="pageTab" style="margin-bottom: 12px">
+      <el-tab-pane label="培养方案" name="plan"></el-tab-pane>
+      <el-tab-pane v-if="hasPerm('P22')" :label="`待办 (${pendingRows.length})`" name="todo"></el-tab-pane>
+    </el-tabs>
+    <div v-show="pageTab === 'plan'">
     <div class="panel">
       <div class="toolbar">
         <el-select v-model="query.majorId" placeholder="全部专业" clearable filterable style="width: 220px" @change="load">
@@ -22,7 +27,7 @@
         <el-button v-if="hasPerm('P02')" type="primary" @click="openCreate">新增方案</el-button>
       </div>
 
-      <el-table :data="rows" border size="small">
+      <el-table :data="pageRows" border size="small">
         <el-table-column prop="majorName" label="专业" min-width="150" show-overflow-tooltip />
         <el-table-column prop="grade" label="适用年级" width="90" />
         <el-table-column label="类型" width="80">
@@ -50,21 +55,21 @@
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">课程明细</el-button>
             <el-button
-              v-if="hasPerm('P02') && row.planStatus === '0'"
+              v-if="canEditRow(row) && row.planStatus === '0'"
               link
               type="primary"
               size="small"
               @click="openEdit(row)"
             >编辑</el-button>
             <el-button
-              v-if="hasPerm('P02') && row.planStatus === '0'"
+              v-if="canEditRow(row) && row.planStatus === '0'"
               link
               type="success"
               size="small"
               @click="submit(row)"
             >提交评审</el-button>
             <el-button
-              v-if="hasPerm('P02') && row.planStatus !== '0'"
+              v-if="canEditRow(row) && row.planStatus !== '0'"
               link
               type="warning"
               size="small"
@@ -87,14 +92,67 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="size"
+        :page-sizes="[10, 20, 30, 50]"
+        :total="rows.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 14px; justify-content: flex-end"
+      />
+    </div>
     </div>
 
-    <el-dialog v-model="createDialog" :title="form.isNew ? '新增培养方案' : '编辑培养方案'" width="560px">
+    <div v-show="pageTab === 'todo'">
+      <div class="panel">
+        <div class="toolbar">
+          <el-tag effect="plain" type="warning">跨院系开课待确认 {{ pendingRows.length }} 项</el-tag>
+          <span class="muted">通知仅发送给课程所属开课学院教务员，由该学院确认或拒绝</span>
+          <span class="spacer" />
+          <el-button @click="loadPending">刷新</el-button>
+        </div>
+        <el-table :data="pendingRows" border size="small" max-height="520">
+          <el-table-column prop="courseId" label="课程号" width="100" />
+          <el-table-column prop="courseName" label="课程名称" min-width="180" show-overflow-tooltip />
+          <el-table-column label="申请专业" min-width="160">
+            <template #default="{ row }">{{ majorName(row.majorId) }}（{{ row.majorId }}）</template>
+          </el-table-column>
+          <el-table-column prop="grade" label="年级" width="80" />
+          <el-table-column label="方案类型" width="90">
+            <template #default="{ row }">{{ row.programType === '1' ? '主修' : '双学位' }}</template>
+          </el-table-column>
+          <el-table-column prop="openCollegeName" label="开课学院" width="150" />
+          <el-table-column prop="receiveCollegeName" label="接收方" width="170" />
+          <el-table-column label="操作" width="150" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="hasPerm('P22')"
+                link
+                type="success"
+                size="small"
+                @click="handleCross(row, '1')"
+              >确认</el-button>
+              <el-button
+                v-if="hasPerm('P22')"
+                link
+                type="danger"
+                size="small"
+                @click="handleCross(row, '2')"
+              >拒绝</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!pendingRows.length" description="暂无需要本学院确认的跨院系开课通知" />
+      </div>
+    </div>
+
+    <el-dialog v-model="createDialog" :title="form.isNew ? '新增培养方案' : '编辑培养方案'" width="640px" top="4vh">
       <el-form :model="form" label-width="106px">
         <el-form-item label="专业" required>
           <el-select v-model="form.majorId" :disabled="!form.isNew" filterable style="width: 100%">
             <el-option
-              v-for="m in majors.filter((x) => x.majorStatus === '1')"
+              v-for="m in editableMajors"
               :key="m.majorId"
               :label="`${m.majorName}（${m.majorId}）`"
               :value="m.majorId"
@@ -118,7 +176,16 @@
           <el-input-number v-model="form.dualQuota" :min="0" :max="200" />
         </el-form-item>
         <el-form-item label="培养目标">
-          <el-input v-model="form.goalDesc" type="textarea" :rows="4" maxlength="3000" show-word-limit />
+          <el-input v-model="form.goalDesc" type="textarea" :rows="3" maxlength="3000" show-word-limit />
+        </el-form-item>
+        <el-form-item label="毕业要求">
+          <el-input v-model="form.graduateDesc" type="textarea" :rows="3" maxlength="3000" show-word-limit />
+        </el-form-item>
+        <el-form-item label="选课要求">
+          <el-input v-model="form.requireDesc" type="textarea" :rows="3" maxlength="3000" show-word-limit />
+        </el-form-item>
+        <el-form-item label="方案说明">
+          <el-input v-model="form.planDesc" type="textarea" :rows="3" maxlength="3000" show-word-limit />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -135,7 +202,7 @@
         <span class="spacer" />
         <el-button size="small" @click="checkCredit">学分核对</el-button>
         <el-button
-          v-if="hasPerm('P02') && current?.planStatus === '0'"
+          v-if="current && canEditRow(current) && current.planStatus === '0'"
           size="small"
           type="primary"
           @click="openAddCourse"
@@ -185,14 +252,14 @@
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
             <el-button
-              v-if="row.crossStatus === '0' && (hasPerm('P22') || hasPerm('P03'))"
+              v-if="row.crossStatus === '0' && hasPerm('P22')"
               link
               type="success"
               size="small"
               @click="confirmCross(row)"
             >确认承接</el-button>
             <el-button
-              v-if="hasPerm('P02') && current?.planStatus === '0'"
+              v-if="current && canEditRow(current) && current.planStatus === '0'"
               link
               type="danger"
               size="small"
@@ -330,12 +397,20 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
-import { hasPerm } from '../store/user'
+import { hasPerm, userStore } from '../store/user'
 
+const user = userStore()
 const rows = ref([])
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return rows.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 const majors = ref([])
 const courses = ref([])
 const query = reactive({ majorId: '', planStatus: '', keyword: '' })
@@ -346,6 +421,8 @@ const courseDialog = ref(false)
 const reviewDialog = ref(false)
 const creditDialog = ref(false)
 const form = reactive({})
+const pendingRows = ref([])
+const pageTab = ref('plan')
 const courseForm = reactive({})
 const reviewForm = reactive({ next: 'pass', opinion: '' })
 const reviewRow = ref(null)
@@ -355,6 +432,22 @@ const credit = ref(null)
 const versionsDialog = ref(false)
 const versions = ref([])
 const versionTitle = ref('')
+
+/** 新增/编辑方案时可选专业：学院教务员仅限本学院在招专业，校级账号可选全部 */
+const editableMajors = computed(() =>
+  majors.value.filter(
+    (m) =>
+      m.majorStatus === '1' &&
+      (user.user?.dataScope !== '2' || m.collegeId === user.user?.collegeId)
+  )
+)
+
+/** 编辑类操作：学院教务员仅可操作本学院方案 */
+function canEditRow(row) {
+  if (!hasPerm('P02')) return false
+  if (user.user?.dataScope === '2') return row.collegeId === user.user?.collegeId
+  return true
+}
 
 const creditRows = computed(() => {
   if (!credit.value?.byType) return []
@@ -377,6 +470,7 @@ const semesterOptions = computed(() => {
   return out
 })
 
+const majorName = (id) => majors.value.find((m) => m.majorId === id)?.majorName || id
 const statusName = (s) => ({ 0: '编制中', 1: '院系初审', 2: '教务处审核', 3: '已发布' }[s] || '-')
 const statusType = (s) => ({ 0: 'info', 1: 'warning', 2: 'warning', 3: 'success' }[s] || 'info')
 const courseTypeName = (t) =>
@@ -388,6 +482,7 @@ async function load() {
     planStatus: query.planStatus || undefined,
     keyword: query.keyword || undefined
   })
+  page.value = 1
 }
 
 function openCreate() {
@@ -463,6 +558,28 @@ async function removeCourse(row) {
   ElMessage.success('已删除')
   await loadDetail()
   await load()
+}
+
+async function loadPending() {
+  pendingRows.value = await api.pendingCross()
+}
+
+async function handleCross(row, status) {
+  const tip = status === '1' ? '确认开课' : '拒绝开课'
+  await ElMessageBox.confirm(
+    `${tip}：${row.courseName}（${majorName(row.majorId)} ${row.grade}）？`,
+    '跨院系开课确认',
+    { type: status === '1' ? 'success' : 'warning' }
+  )
+  await api.confirmCross({
+    majorId: row.majorId,
+    grade: row.grade,
+    programType: row.programType,
+    courseId: row.courseId,
+    status
+  })
+  ElMessage.success(status === '1' ? '已确认开课' : '已拒绝开课')
+  await loadPending()
 }
 
 async function confirmCross(row) {
@@ -553,6 +670,13 @@ onMounted(async () => {
   majors.value = await api.majors()
   courses.value = await api.courses()
   await load()
+  if (hasPerm('P22')) {
+    try {
+      await loadPending()
+    } catch {
+      pendingRows.value = []
+    }
+  }
 })
 </script>
 

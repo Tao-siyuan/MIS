@@ -21,8 +21,9 @@
           <span>工作台</span>
         </el-menu-item>
 
-        <el-sub-menu v-if="show(['P01', 'P02', 'P03', 'P04'])" index="plan">
+        <el-sub-menu v-if="show(['P01', 'P02', 'P03', 'P04', 'P25'])" index="plan">
           <template #title><el-icon><Files /></el-icon><span>专业设置</span></template>
+          <el-menu-item v-if="show(['P25'])" index="/catalog">专业与方案总览</el-menu-item>
           <el-menu-item v-if="show(['P01'])" index="/colleges">学院与专业</el-menu-item>
           <el-menu-item v-if="show(['P02', 'P03'])" index="/programs">培养方案</el-menu-item>
           <el-menu-item v-if="show(['P04'])" index="/general-plan">通识课程计划</el-menu-item>

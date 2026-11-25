@@ -13,7 +13,7 @@
         <el-button v-if="hasPerm('P04')" type="primary" @click="openCreate">新增计划</el-button>
       </div>
 
-      <el-table :data="rows" border size="small">
+      <el-table :data="pageRows" border size="small">
         <el-table-column prop="schoolYear" label="学年" width="110" />
         <el-table-column prop="courseId" label="课程号" width="100" />
         <el-table-column prop="courseName" label="课程名称" min-width="180" show-overflow-tooltip />
@@ -63,6 +63,15 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="size"
+        :page-sizes="[10, 20, 30, 50]"
+        :total="rows.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 14px; justify-content: flex-end"
+      />
     </div>
 
     <el-dialog v-model="dialog" title="新增通识课程计划" width="540px">
@@ -111,12 +120,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { hasPerm } from '../store/user'
 
 const rows = ref([])
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return rows.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 const courses = ref([])
 const colleges = ref([])
 const teachers = ref([])
@@ -130,6 +146,7 @@ const categoryName = (c) =>
 
 async function load() {
   rows.value = await api.generalPlans({ schoolYear: schoolYear.value || undefined })
+  page.value = 1
 }
 
 function openCreate() {

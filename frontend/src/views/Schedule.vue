@@ -21,17 +21,30 @@
       </div>
       <el-tabs v-model="tab">
         <el-tab-pane label="排课结果" name="result">
-          <el-table :data="results" border size="small" max-height="520">
+          <div class="toolbar" style="margin-bottom: 10px">
+            <el-input v-model="filter.schedId" placeholder="排课编号" clearable style="width: 130px" />
+            <el-input v-model="filter.tcId" placeholder="教学班" clearable style="width: 130px" />
+            <el-input v-model="filter.courseName" placeholder="课程" clearable style="width: 150px" />
+            <el-input v-model="filter.teacherName" placeholder="教师" clearable style="width: 120px" />
+            <el-input v-model="filter.roomName" placeholder="教室" clearable style="width: 120px" />
+            <el-button type="primary" @click="applyFilter">查询</el-button>
+            <el-button @click="resetFilter">重置</el-button>
+          </div>
+          <el-table :data="pageRows" border size="small" max-height="520">
             <el-table-column prop="schedId" label="排课编号" width="115" />
             <el-table-column prop="tcId" label="教学班" width="115" />
             <el-table-column prop="courseName" label="课程" min-width="160" show-overflow-tooltip />
             <el-table-column prop="teacherName" label="教师" width="95" />
             <el-table-column prop="classIds" label="班级" min-width="120" show-overflow-tooltip />
             <el-table-column label="时间" width="150">
-              <template #default="{ row }">{{ dayName(row.weekDay) }} {{ row.startSlot }}-{{ row.endSlot }}节</template>
+              <template #default="{ row }">
+                {{ dayName(row.weekDay) }} {{ row.startSlot }}-{{ row.endSlot }} 节
+              </template>
             </el-table-column>
             <el-table-column prop="weekRange" label="周次" width="80" />
-            <el-table-column prop="roomName" label="教室" width="130" />
+            <el-table-column label="教室" width="130">
+              <template #default="{ row }">{{ row.roomName || '操场' }}</template>
+            </el-table-column>
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
                 <el-tag size="small" :type="['info', 'warning', 'success', 'primary'][Number(row.schedStatus)]">
@@ -46,6 +59,15 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :page-sizes="[10, 20, 30, 50]"
+            :total="filteredResults.length"
+            layout="total, sizes, prev, pager, next, jumper"
+            style="margin-top: 14px; justify-content: flex-end"
+          />
         </el-tab-pane>
 
         <el-tab-pane name="conflict">
@@ -289,7 +311,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
@@ -298,6 +320,41 @@ const terms = ref(['2026-2027-1'])
 const tab = ref('result')
 const stat = ref({})
 const results = ref([])
+const page = ref(1)
+const size = ref(20)
+const filter = reactive({ schedId: '', tcId: '', courseName: '', teacherName: '', roomName: '' })
+const applied = reactive({ schedId: '', tcId: '', courseName: '', teacherName: '', roomName: '' })
+const filteredResults = computed(() => {
+  const match = (cond, value) =>
+    !cond || String(value ?? '').toLowerCase().includes(String(cond).toLowerCase())
+  const f = applied
+  return results.value
+    .filter(
+      (r) =>
+        match(f.schedId, r.schedId) &&
+        match(f.tcId, r.tcId) &&
+        match(f.courseName, r.courseName) &&
+        match(f.teacherName, r.teacherName) &&
+        match(f.roomName, r.roomName || '操场')
+    )
+    .sort((a, b) => String(a.schedId).localeCompare(String(b.schedId)))
+})
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return filteredResults.value.slice(start, start + size.value)
+})
+function applyFilter() {
+  Object.assign(applied, filter)
+  page.value = 1
+}
+function resetFilter() {
+  Object.keys(filter).forEach((k) => {
+    filter[k] = ''
+    applied[k] = ''
+  })
+  page.value = 1
+}
+watch(size, () => { page.value = 1 })
 const conflictRows = ref([])
 const rooms = ref([])
 const ruleRows = ref([])
@@ -325,6 +382,7 @@ const conflictTypeName = (t) =>
 async function loadAll() {
   stat.value = await api.workbench({ term: term.value })
   results.value = await api.scheduleResults({ term: term.value })
+  page.value = 1
   conflictRows.value = await api.conflicts({ term: term.value })
   rooms.value = await api.rooms()
   ruleRows.value = await api.rules()

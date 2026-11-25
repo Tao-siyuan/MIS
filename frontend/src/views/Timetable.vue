@@ -13,6 +13,9 @@
             <el-select v-model="term" style="width: 150px" @change="load">
               <el-option v-for="t in terms" :key="t" :label="t" :value="t" />
             </el-select>
+            <el-select v-model="week" style="width: 110px">
+              <el-option v-for="w in weeks" :key="w" :label="`第 ${w} 周`" :value="w" />
+            </el-select>
             <el-radio-group v-model="view" @change="onViewChange">
               <el-radio-button value="self">我的课表</el-radio-button>
               <el-radio-button v-if="canQueryOthers" value="class">班级</el-radio-button>
@@ -29,6 +32,7 @@
               <el-option v-for="r in rooms" :key="r.roomId" :label="r.roomName" :value="r.roomId" />
             </el-select>
             <span class="spacer" />
+            <span class="muted">当前显示：第 {{ week }} 周</span>
             <el-button :loading="exporting" @click="exportXlsx">导出课表（xlsx）</el-button>
           </div>
 
@@ -86,7 +90,7 @@
         <el-descriptions-item label="教师">{{ current.teacherName }}</el-descriptions-item>
         <el-descriptions-item label="班级">{{ current.classIds }}</el-descriptions-item>
         <el-descriptions-item label="时间">
-          {{ dayName(Number(current.weekDay)) }} {{ current.startSlot }}-{{ current.endSlot }} 节（{{ current.weekRange }} 周）
+          第 {{ week }} 周（{{ current.weekRange }} 周）：{{ dayName(Number(current.weekDay)) }} {{ current.startSlot }}-{{ current.endSlot }} 节
         </el-descriptions-item>
         <el-descriptions-item label="教室">{{ current.roomName }}</el-descriptions-item>
         <el-descriptions-item label="学分">{{ current.credit }}</el-descriptions-item>
@@ -117,6 +121,8 @@ const detailDialog = ref(false)
 const current = ref(null)
 const exporting = ref(false)
 const periods = [1, 3, 5, 7, 9, 11]
+const week = ref(1)
+const weeks = Array.from({ length: 16 }, (_, i) => i + 1)
 
 const isStudent = computed(() => user.isStudent())
 const isTeacher = computed(() => user.isTeacher())
@@ -125,8 +131,27 @@ const canQueryOthers = computed(() => !isStudent.value && !isTeacher.value)
 
 const dayName = (d) => ({ 1: '周一', 2: '周二', 3: '周三', 4: '周四', 5: '周五' }[d] || '')
 
+/** 解析“1-16”“9-16”形式的周次范围，缺省按 1-16 处理 */
+function parseWeekRange(range) {
+  if (!range) return [1, 16]
+  const parts = String(range)
+    .split('-')
+    .map((s) => parseInt(s.trim(), 10))
+  if (parts.some(Number.isNaN)) return [1, 16]
+  const a = parts[0]
+  const b = parts.length > 1 ? parts[1] : a
+  return [Math.min(a, b), Math.max(a, b)]
+}
+
+function inWeek(range, w) {
+  const [start, end] = parseWeekRange(range)
+  return w >= start && w <= end
+}
+
+const weekRows = computed(() => rows.value.filter((r) => inWeek(r.weekRange, week.value)))
+
 function cellItems(day, period) {
-  return rows.value.filter((r) => Number(r.weekDay) === day && Number(r.startSlot) === period)
+  return weekRows.value.filter((r) => Number(r.weekDay) === day && Number(r.startSlot) === period)
 }
 
 async function onViewChange() {
@@ -195,7 +220,7 @@ async function exportXlsx() {
       grid.push(line)
     }
     const detail = [['课程', '教师', '班级', '星期', '节次', '周次', '教室', '学分']]
-    rows.value.forEach((r) =>
+    weekRows.value.forEach((r) =>
       detail.push([
         r.courseName,
         r.teacherName,
@@ -211,12 +236,12 @@ async function exportXlsx() {
     const ws = XLSX.utils.aoa_to_sheet(grid)
     ws['!cols'] = [{ wch: 10 }, ...days.map(() => ({ wch: 24 }))]
     ws['!rows'] = [{ hpt: 20 }, ...periods.map(() => ({ hpt: 60 }))]
-    XLSX.utils.book_append_sheet(wb, ws, '周课表')
+    XLSX.utils.book_append_sheet(wb, ws, `第${week.value}周课表`)
     const ws2 = XLSX.utils.aoa_to_sheet(detail)
     ws2['!cols'] = [22, 12, 14, 8, 10, 10, 10, 8].map((wch) => ({ wch }))
     XLSX.utils.book_append_sheet(wb, ws2, '课程明细')
     const suffix = view.value === 'self' ? '' : `_${key.value || ''}`
-    XLSX.writeFile(wb, `课表_${term.value}${suffix}.xlsx`)
+    XLSX.writeFile(wb, `课表_${term.value}_第${week.value}周${suffix}.xlsx`)
     ElMessage.success('课表已导出为 Excel，导出行为已记录')
   } catch (e) {
     ElMessage.error('导出失败：' + (e?.message || '未知错误'))

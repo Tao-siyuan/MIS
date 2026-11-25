@@ -18,7 +18,7 @@
             <span class="spacer" />
             <el-button v-if="isStudent" type="primary" size="small" @click="openEnroll">双学位报名</el-button>
           </div>
-          <el-table :data="enrolls" border size="small" max-height="480">
+          <el-table :data="enrollPageRows" border size="small" max-height="480">
             <el-table-column prop="enrollId" label="报名编号" width="120" />
             <el-table-column prop="stuId" label="学号" width="120" />
             <el-table-column prop="majorName" label="双学位专业" min-width="160" />
@@ -53,6 +53,15 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <el-pagination
+            v-model:current-page="enrollPage"
+            v-model:page-size="enrollSize"
+            :page-sizes="[10, 20, 30, 50]"
+            :total="enrolls.length"
+            layout="total, sizes, prev, pager, next, jumper"
+            style="margin-top: 14px; justify-content: flex-end"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="修读记录与学分认定" name="study">
@@ -218,7 +227,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import api from '../api'
 import { userStore } from '../store/user'
@@ -226,6 +235,13 @@ import { userStore } from '../store/user'
 const user = userStore()
 const tab = ref('enroll')
 const enrolls = ref([])
+const enrollPage = ref(1)
+const enrollSize = ref(20)
+const enrollPageRows = computed(() => {
+  const start = (enrollPage.value - 1) * enrollSize.value
+  return enrolls.value.slice(start, start + enrollSize.value)
+})
+watch(enrollSize, () => { enrollPage.value = 1 })
 const studies = ref([])
 const conflicts = ref([])
 const majors = ref([])
@@ -258,6 +274,7 @@ const dualPrograms = computed(() => {
 
 async function loadEnrolls() {
   enrolls.value = await api.dualEnrolls({ auditStatus: enrollFilter.value || undefined })
+  enrollPage.value = 1
 }
 
 async function loadStudy() {

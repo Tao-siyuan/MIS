@@ -38,8 +38,72 @@ public class TeachingClassController {
         return Result.ok(tcService.list(term, keyword, tcStatus));
     }
 
-    @PostMapping
+    /** 编排教学班时的候选面向班级（培养方案中该学期需修读该课程、且尚未编排的班级） */
+    @GetMapping("/class-candidates")
+    public Result<List<Map<String, Object>>> classCandidates(@RequestParam(required = false) String term,
+                                                             @RequestParam(required = false) String courseId) {
+        return Result.ok(tcService.classCandidates(term, courseId));
+    }
+
+    /** 建班候选课程：本学院开设、在用培养方案本学期开课、且仍有未编排班级 */
+    @GetMapping("/course-candidates")
+    public Result<List<Map<String, Object>>> courseCandidates(@RequestParam(required = false) String term,
+                                                              @RequestParam(required = false) String collegeId) {
+        return Result.ok(tcService.courseCandidates(term, collegeId));
+    }
+
+    /** 选修课建班候选课程：本学院本学期尚无教学班的课程 */
+    @GetMapping("/elective-candidates")
+    public Result<List<Map<String, Object>>> electiveCandidates(@RequestParam(required = false) String term,
+                                                                @RequestParam(required = false) String collegeId) {
+        return Result.ok(tcService.electiveCandidates(term, collegeId));
+    }
+
+    /** 学院教务分配任课教师 */
+    @PutMapping("/{tcId}/assign-teacher")
+    @RequirePerm({"P19", "P09"})
+    public Result<Void> assignTeacher(@PathVariable String tcId, @RequestParam String teacherId) {
+        tcService.assignTeacher(tcId, teacherId);
+        return Result.ok();
+    }
+
+    /** 教师承接选修课并设定容量 */
+    @PutMapping("/{tcId}/claim")
+    @RequirePerm("P08")
+    public Result<Void> claim(@PathVariable String tcId, @RequestParam Integer capacity) {
+        tcService.claim(tcId, capacity);
+        return Result.ok();
+    }
+
+    /** 教务处审核选修课教学班 */
+    @PutMapping("/{tcId}/review")
     @RequirePerm("P19")
+    public Result<Void> review(@PathVariable String tcId,
+                               @RequestParam boolean pass,
+                               @RequestParam(required = false) String reason) {
+        tcService.review(tcId, pass, reason);
+        return Result.ok();
+    }
+
+    /** 任课教师确认承接 */
+    @PutMapping("/{tcId}/confirm")
+    @RequirePerm("P08")
+    public Result<Void> confirm(@PathVariable String tcId) {
+        tcService.confirm(tcId);
+        return Result.ok();
+    }
+
+    /** 任课教师拒绝承接 */
+    @PutMapping("/{tcId}/decline")
+    @RequirePerm("P08")
+    public Result<Void> decline(@PathVariable String tcId, @RequestParam(required = false) String reason) {
+        tcService.decline(tcId, reason);
+        return Result.ok();
+    }
+
+    /** 教务处/学院教务员编排教学班（P19），任课教师随后划分本班理论/实践学时（P08） */
+    @PostMapping
+    @RequirePerm({"P19", "P08"})
     public Result<Void> save(@RequestBody Map<String, Object> body) {
         tcService.save(body);
         return Result.ok();

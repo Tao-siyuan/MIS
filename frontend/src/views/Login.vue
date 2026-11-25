@@ -76,7 +76,7 @@ const accounts = [
   { label: '教务处管理员 B220001', user: 'B220001', pwd: 'USTB@220001' },
   { label: '学院教务员 B220002', user: 'B220002', pwd: 'USTB@220002' },
   { label: '教室管理员 B220004', user: 'B220004', pwd: 'USTB@220004' },
-  { label: '教师 A230001', user: 'A230001', pwd: 'USTB@230001' },
+  { label: '教师 A260001', user: 'A260001', pwd: 'USTB@260001' },
   { label: '学生 U202341224', user: 'U202341224', pwd: 'USTB@341224' }
 ]
 

@@ -34,6 +34,8 @@ public interface ViewMapper {
             <script>
             SELECT c.course_id AS courseId, c.course_name AS courseName, c.course_type AS courseType,
                    c.credit AS credit, c.total_hours AS totalHours, c.assess_type AS assessType,
+                   c.theory_hours AS theoryHours, c.practice_hours AS practiceHours,
+                   c.practice_room_type AS practiceRoomType,
                    c.open_college AS openCollege, co.college_name AS collegeName,
                    c.pre_course_id AS preCourseId, p.course_name AS preCourseName,
                    c.course_status AS courseStatus, c.syllabus AS syllabus
@@ -157,7 +159,10 @@ public interface ViewMapper {
                    c.credit AS credit, c.course_type AS courseType, tc.teacher_id AS teacherId,
                    t.teacher_name AS teacherName, tc.class_ids AS classIds, tc.student_num AS studentNum,
                    tc.capacity AS capacity, tc.tc_type AS tcType, tc.teach_type AS teachType,
-                   tc.hours AS hours, tc.week_count AS weekCount, tc.prefer_slot AS preferSlot,
+                   tc.hours AS hours,
+                   COALESCE(tc.theory_hours, c.theory_hours, tc.hours, 0) AS theoryHours,
+                   COALESCE(tc.practice_hours, c.practice_hours, 0) AS practiceHours,
+                   tc.week_count AS weekCount, tc.week_start AS weekStart, tc.prefer_slot AS preferSlot,
                    tc.unavailable_time AS unavailableTime, tc.tc_status AS tcStatus, tc.source AS source,
                    tc.actual_num AS actualNum, tc.open_lower AS openLower, tc.no_open_reason AS noOpenReason,
                    c.open_college AS collegeId, co.college_name AS collegeName,
@@ -203,7 +208,7 @@ public interface ViewMapper {
             <if test="term != null and term != ''"> AND tc.term = #{term}</if>
             <if test="tcId != null and tcId != ''"> AND sr.tc_id = #{tcId}</if>
             <if test="schedStatus != null and schedStatus != ''"> AND sr.sched_status = #{schedStatus}</if>
-            ORDER BY sr.week_day, sr.start_slot, sr.sched_id
+            ORDER BY sr.sched_id
             </script>
             """)
     List<Map<String, Object>> listScheduleResults(@Param("term") String term,

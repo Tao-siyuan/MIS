@@ -49,6 +49,22 @@ public class EvalController {
         return Result.ok();
     }
 
+    /** 将汇总后的评教结果发布给各任课教师（教师仅可见本人教学班，学生信息保密） */
+    @PostMapping("/plans/{id}/publish-result")
+    @RequirePerm("P18")
+    public Result<Void> publishResult(@PathVariable String id) {
+        evalService.publishResult(id);
+        return Result.ok();
+    }
+
+    /** 撤回已发布给任课教师的评教结果（3 → 2），教师端立即不可再查看 */
+    @PostMapping("/plans/{id}/revoke-result")
+    @RequirePerm("P18")
+    public Result<Void> revokeResult(@PathVariable String id) {
+        evalService.revokeResult(id);
+        return Result.ok();
+    }
+
     @PostMapping("/plans/{id}/finish")
     @RequirePerm("P18")
     public Result<Void> finish(@PathVariable String id) {

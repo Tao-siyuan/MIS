@@ -39,7 +39,10 @@ import java.util.Set;
 @Service
 public class ScheduleService {
 
+    /** 可排节次：一节课占两小节（1-2、3-4…11-12），起点为奇数 */
     private static final int[] PERIOD_START = {1, 3, 5, 7, 9, 11};
+    /** 每天最后一小节，用于两节连排的边界判断 */
+    private static final int LAST_SLOT = 12;
     private static final String[] DAY_NAMES = {"", "周一", "周二", "周三", "周四", "周五", "周六", "周日"};
     private static final Map<String, String> CONFLICT_TYPE_NAME = Map.of(
             "01", "教师冲突", "02", "教室冲突", "03", "班级冲突",
@@ -102,8 +105,9 @@ public class ScheduleService {
         data.put("publishedCount", published);
         data.put("lockedCount", locked);
         data.put("pendingConflict", viewMapper.listConflicts(term, "0").size());
+        // 仅统计已由教师承接、尚未排课的教学班
         data.put("unScheduled", tcs.stream()
-                .filter(t -> !Arrays.asList("3", "4").contains(t.getTcStatus())).count());
+                .filter(t -> "1".equals(t.getTcStatus())).count());
         // 教室利用率
         List<Classroom> rooms = classroomMapper.selectList(Wrappers.<Classroom>lambdaQuery());
         List<Map<String, Object>> usage = new ArrayList<>();
@@ -146,6 +150,16 @@ public class ScheduleService {
         boolean morningFirst = rules.stream().anyMatch(r -> "R01".equals(r.getRuleId()));
 
         List<Occ> occ = loadOccupancy(term);
+        // 同教师对不同教学班上同一门课程时，尽量沿用同一教室
+        Map<String, String> teacherCourseRoom = new HashMap<>();
+        for (TeachingClass t : tcs) {
+            if (t.getTeacherId() == null) {
+                continue;
+            }
+            String key = t.getTeacherId() + "|" + t.getCourseId();
+            occ.stream().filter(o -> o.tcId.equals(t.getTcId()) && o.roomId != null)
+                    .findFirst().ifPresent(o -> teacherCourseRoom.putIfAbsent(key, o.roomId));
+        }
         int assigned = 0;
         int failed = 0;
         List<String> failDetail = new ArrayList<>();
@@ -156,68 +170,37 @@ public class ScheduleService {
                 failDetail.add(tc.getTcId() + " 未落实任课教师");
                 continue;
             }
+            Course course = courseMap.get(tc.getCourseId());
+            int weeks = tc.getWeekCount() == null || tc.getWeekCount() == 0 ? 16 : tc.getWeekCount();
+            // 理论课按单节排课，实践课两节连排；每周次数由学时与周数决定
+            int theoryNeed = weeklyCount(tc.getTheoryHours(), weeks);
+            int practiceNeed = practiceCount(tc.getPracticeHours(), weeks);
+            if (theoryNeed + practiceNeed == 0) {
+                theoryNeed = weeklyCount(tc.getHours(), weeks);
+            }
+            int need = theoryNeed + practiceNeed;
             long existing = occ.stream().filter(o -> o.tcId.equals(tc.getTcId())).count();
-            int need = weeklySessions(tc);
             if (existing >= need) {
                 continue;
             }
-            Course course = courseMap.get(tc.getCourseId());
+            // 体育课不安排教室，全部安排在操场
+            boolean pe = isPeCourse(course);
             List<Integer> periodOrder = buildPeriodOrder(tc, course, morningFirst);
             List<Integer> dayOrder = buildDayOrder(tc);
-            List<Classroom> roomCandidates = filterRooms(rooms, tc.getTeachType(), tc.getStudentNum());
-            if (roomCandidates.isEmpty()) {
-                failed++;
-                createConflict(tc.getTcId(), null, "04",
-                        "无满足要求的教室（需 " + tc.getStudentNum() + " 座，教学形式 "
-                                + teachTypeName(tc.getTeachType()) + "）",
-                        "请调整教室类型或申请增开教室");
-                failDetail.add(tc.getTcId() + " 无可用教室");
-                continue;
-            }
             int createdForTc = 0;
-            for (int i = 0; i < need - existing; i++) {
-                boolean placed = false;
-                for (int day : dayOrder) {
-                    if (placed) {
-                        break;
-                    }
-                    for (int startSlot : periodOrder) {
-                        int endSlot = startSlot + 1;
-                        if (unavailable(tc, day, startSlot)) {
-                            continue;
-                        }
-                        for (Classroom room : roomCandidates) {
-                            List<String> conflicts = checkOcc(occ, tc, room, day, startSlot, endSlot);
-                            if (conflicts.isEmpty()) {
-                                ScheduleResult sr = new ScheduleResult();
-                                sr.setSchedId(codeService.nextSchedId());
-                                sr.setTcId(tc.getTcId());
-                                sr.setRoomId(room.getRoomId());
-                                sr.setWeekRange("1-" + (tc.getWeekCount() == null ? 16 : tc.getWeekCount()));
-                                sr.setWeekDay(String.valueOf(day));
-                                sr.setStartSlot(startSlot);
-                                sr.setEndSlot(endSlot);
-                                sr.setSchedStatus("0");
-                                sr.setLockFlag("0");
-                                resultMapper.insert(sr);
-                                occ.add(new Occ(tc.getTcId(), tc.getTeacherId(), room.getRoomId(),
-                                        day, startSlot, endSlot, tc.getClassIds()));
-                                placed = true;
-                                createdForTc++;
-                                break;
-                            }
-                        }
-                        if (placed) {
-                            break;
-                        }
-                    }
-                }
-                if (!placed) {
-                    String desc = describeFail(occ, tc, roomCandidates, periodOrder);
-                    createConflict(tc.getTcId(), null, "07", desc, "建议调整该教学班的上课时间或增开教室");
-                    failDetail.add(tc.getTcId() + " 可用时段不足");
-                    break;
-                }
+            int existingTheory = (int) Math.min(existing, theoryNeed);
+            String preferRoom = tc.getTeacherId() == null ? null
+                    : teacherCourseRoom.get(tc.getTeacherId() + "|" + tc.getCourseId());
+            // 理论学时 -> 普通/多媒体教室
+            if (theoryNeed > existingTheory) {
+                createdForTc += placeSessions(tc, rooms, false, theoryNeed - existingTheory,
+                        dayOrder, periodOrder, occ, failDetail, null, 2, preferRoom, pe);
+            }
+            // 实践学时 -> 按课程要求的实践场地类型（机房/实验室等）匹配场地
+            if (practiceNeed > 0) {
+                createdForTc += placeSessions(tc, rooms, true, practiceNeed,
+                        dayOrder, periodOrder, occ, failDetail,
+                        course == null ? null : course.getPracticeRoomType(), 2, null, false);
             }
             if (createdForTc > 0) {
                 assigned++;
@@ -248,11 +231,19 @@ public class ScheduleService {
         if (tc == null) {
             throw new BizException("教学班不存在");
         }
+        if (!Arrays.asList("1", "3").contains(tc.getTcStatus())) {
+            throw new BizException("教学班尚未由任课教师确认承接，不能排课");
+        }
         String roomId = str(body.get("roomId"));
         int day = Integer.parseInt(str(body.get("weekDay")));
         int start = Integer.parseInt(str(body.get("startSlot")));
         int end = Integer.parseInt(str(body.get("endSlot")));
         String schedId = str(body.get("schedId"));
+        // 周次范围默认取教学班设置（16 周 / 前 8 周 / 后 8 周）
+        String weekRange = str(body.get("weekRange"));
+        if (weekRange == null || weekRange.isBlank()) {
+            weekRange = weekRangeOf(tc);
+        }
         List<String> conflicts = checkConflict(tc, roomId, day, start, end, schedId);
         if (!conflicts.isEmpty()) {
             throw new BizException("存在冲突：" + String.join("；", conflicts));
@@ -261,15 +252,15 @@ public class ScheduleService {
         if (room == null) {
             throw new BizException("教室不存在");
         }
-        if (room.getCapacity() < tc.getStudentNum()) {
-            throw new BizException("教室容量不足（需 " + tc.getStudentNum() + " 座，当前 " + room.getCapacity() + " 座）");
+        if (room.getCapacity() < needSeats(tc)) {
+            throw new BizException("教室容量不足（需 " + needSeats(tc) + " 座，当前 " + room.getCapacity() + " 座）");
         }
         if (schedId == null || schedId.isBlank()) {
             ScheduleResult sr = new ScheduleResult();
             sr.setSchedId(codeService.nextSchedId());
             sr.setTcId(tcId);
             sr.setRoomId(roomId);
-            sr.setWeekRange(str(body.get("weekRange")) == null ? "1-16" : str(body.get("weekRange")));
+            sr.setWeekRange(weekRange);
             sr.setWeekDay(String.valueOf(day));
             sr.setStartSlot(start);
             sr.setEndSlot(end);
@@ -288,6 +279,7 @@ public class ScheduleService {
             update.setWeekDay(String.valueOf(day));
             update.setStartSlot(start);
             update.setEndSlot(end);
+            update.setWeekRange(weekRange);
             update.setSchedStatus("1");
             resultMapper.updateById(update);
             auditService.record("02", "schedule_result:" + schedId,
@@ -295,6 +287,11 @@ public class ScheduleService {
                             "startSlot", old.getStartSlot()),
                     Map.of("roomId", roomId, "weekDay", day, "startSlot", start));
         }
+        // 容量上限由排课教室决定
+        TeachingClass capacityUpdate = new TeachingClass();
+        capacityUpdate.setTcId(tcId);
+        capacityUpdate.setCapacity(room.getCapacity());
+        tcMapper.updateById(capacityUpdate);
         tcMapper.update(null, Wrappers.<TeachingClass>lambdaUpdate()
                 .eq(TeachingClass::getTcId, tcId).set(TeachingClass::getTcStatus, "3"));
     }
@@ -361,12 +358,12 @@ public class ScheduleService {
         List<String> incomplete = new ArrayList<>();
         List<TeachingClass> ready = new ArrayList<>();
         for (TeachingClass tc : tcs) {
-            if (Arrays.asList("2", "0", "4").contains(tc.getTcStatus())) {
+            if (Arrays.asList("2", "0", "4", "5", "6", "7").contains(tc.getTcStatus())) {
                 continue;
             }
             long segments = resultMapper.selectCount(Wrappers.<ScheduleResult>lambdaQuery()
                     .eq(ScheduleResult::getTcId, tc.getTcId()));
-            int need = weeklySessions(tc);
+            int need = needSegments(tc);
             if (segments < need) {
                 incomplete.add(tc.getTcId() + "（已排 " + segments + " 段，需 " + need + " 段）");
             } else {
@@ -409,8 +406,9 @@ public class ScheduleService {
         }
         List<Occ> occ = loadOccupancy(tc.getTerm());
         occ.removeIf(o -> excludeSchedId != null && excludeSchedId.equals(o.schedId));
+        int[] wr = parseWeekRange(weekRangeOf(tc));
         for (Occ o : occ) {
-            if (o.day != day || !overlap(o.start, o.end, start, end)) {
+            if (o.day != day || !overlap(o.start, o.end, start, end) || !o.weekOverlap(wr[0], wr[1])) {
                 continue;
             }
             if (o.tcId.equals(tc.getTcId())) {
@@ -426,11 +424,11 @@ public class ScheduleService {
                 messages.add("班级冲突：面向班级与教学班 " + o.tcId + " 时间重合");
             }
         }
-        if (room.getCapacity() < (tc.getStudentNum() == null ? 0 : tc.getStudentNum())) {
-            messages.add("教室容量不足（需 " + tc.getStudentNum() + " 座）");
+        if (room.getCapacity() < needSeats(tc)) {
+            messages.add("教室容量不足（需 " + needSeats(tc) + " 座）");
         }
-        if (!roomTypeMatch(tc.getTeachType(), room.getRoomType())) {
-            messages.add("教室类型与教学形式不匹配");
+        if (!roomMatchByHours(tc, room.getRoomType())) {
+            messages.add("教室类型与理论/实践学时要求不匹配");
         }
         if (!roomTimeAvailable(room, day, start)) {
             messages.add("教室在该时段不可用（" + room.getAvailableTime() + "）");
@@ -482,9 +480,15 @@ public class ScheduleService {
     // ---------------- 内部工具 ----------------
 
     private record Occ(String schedId, String tcId, String teacherId, String roomId,
-                       int day, int start, int end, String classIds) {
-        Occ(String tcId, String teacherId, String roomId, int day, int start, int end, String classIds) {
-            this(null, tcId, teacherId, roomId, day, start, end, classIds);
+                       int day, int start, int end, String classIds, int weekStart, int weekEnd) {
+        Occ(String tcId, String teacherId, String roomId, int day, int start, int end, String classIds,
+            int weekStart, int weekEnd) {
+            this(null, tcId, teacherId, roomId, day, start, end, classIds, weekStart, weekEnd);
+        }
+
+        /** 两段排课仅在上课周次重叠时才构成冲突（前 8 周与后 8 周可共用同一时段） */
+        boolean weekOverlap(int otherStart, int otherEnd) {
+            return weekStart <= otherEnd && otherStart <= weekEnd;
         }
     }
 
@@ -492,21 +496,324 @@ public class ScheduleService {
         List<Map<String, Object>> rows = viewMapper.listScheduleResults(term, null, null);
         List<Occ> occ = new ArrayList<>();
         for (Map<String, Object> row : rows) {
+            int[] wr = parseWeekRange(str(row.get("weekRange")));
             occ.add(new Occ(str(row.get("schedId")), str(row.get("tcId")), str(row.get("teacherId")),
                     str(row.get("roomId")),
                     Integer.parseInt(str(row.get("weekDay"))),
                     Integer.parseInt(str(row.get("startSlot"))),
                     Integer.parseInt(str(row.get("endSlot"))),
-                    str(row.get("classIds"))));
+                    str(row.get("classIds")), wr[0], wr[1]));
         }
         return occ;
     }
 
-    private int weeklySessions(TeachingClass tc) {
-        int hours = tc.getHours() == null ? 48 : tc.getHours();
+    /** 解析“1-8”“9-16”形式的周次范围，缺省按 1-16 处理 */
+    private int[] parseWeekRange(String weekRange) {
+        if (weekRange == null || weekRange.isBlank()) {
+            return new int[]{1, 16};
+        }
+        String[] parts = weekRange.split("-");
+        try {
+            int a = Integer.parseInt(parts[0].trim());
+            int b = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : a;
+            return new int[]{Math.max(1, Math.min(a, b)), Math.max(1, Math.max(a, b))};
+        } catch (NumberFormatException ex) {
+            return new int[]{1, 16};
+        }
+    }
+
+    /** 教学班的上课周次范围，如 16 周为“1-16”，后 8 周为“9-16” */
+    private String weekRangeOf(TeachingClass tc) {
         int weeks = tc.getWeekCount() == null || tc.getWeekCount() == 0 ? 16 : tc.getWeekCount();
-        double perWeek = hours * 1.0 / weeks;
-        return Math.max(1, (int) Math.round(perWeek / 2));
+        int start = tc.getWeekStart() == null || tc.getWeekStart() < 1 ? 1 : tc.getWeekStart();
+        return start + "-" + (start + weeks - 1);
+    }
+
+    /** 理论课每周节数：每节按 2 学时计（8 节课 = 16 学时） */
+    private int weeklyCount(Integer hours, int weeks) {
+        if (hours == null || hours <= 0) {
+            return 0;
+        }
+        return Math.max(1, (int) Math.round(hours / 2.0 / weeks));
+    }
+
+    /** 教学班需要排的周内次数（理论单节 + 实践两节连排） */
+    private int needSegments(TeachingClass tc) {
+        int weeks = tc.getWeekCount() == null || tc.getWeekCount() == 0 ? 16 : tc.getWeekCount();
+        int theory = weeklyCount(tc.getTheoryHours(), weeks);
+        int practice = practiceCount(tc.getPracticeHours(), weeks);
+        if (theory + practice == 0) {
+            theory = weeklyCount(tc.getHours(), weeks);
+        }
+        return theory + practice;
+    }
+
+    /** 实践课每周次数：每次两节连排（2 小节 = 2 学时） */
+    private int practiceCount(Integer hours, int weeks) {
+        if (hours == null || hours <= 0) {
+            return 0;
+        }
+        return Math.max(1, (int) Math.round(hours / 2.0 / weeks));
+    }
+
+    /** 体育课：体育部（18）开设或课程名含“体育”，不占用教室、安排在操场 */
+    private boolean isPeCourse(Course course) {
+        return course != null && ("18".equals(course.getOpenCollege())
+                || (course.getCourseName() != null && course.getCourseName().contains("体育")));
+    }
+
+    /** 排课需要的座位数：以面向人数为准；无面向班级的选修课用教师设定容量 */
+    private int needSeats(TeachingClass tc) {
+        int studentNum = tc.getStudentNum() == null ? 0 : tc.getStudentNum();
+        if (studentNum > 0) {
+            return studentNum;
+        }
+        return tc.getCapacity() == null ? 0 : tc.getCapacity();
+    }
+
+    /** 按理论/实践匹配教室类型：理论->普通/多媒体，实践->课程指定的实践场地类型 */
+    private List<Classroom> filterRoomsByPart(List<Classroom> rooms, boolean practice, Integer studentNum,
+                                              String practiceRoomType) {
+        List<Classroom> list = new ArrayList<>();
+        for (Classroom room : rooms) {
+            boolean typeMatch = practice
+                    ? practiceRoomMatches(practiceRoomType, room.getRoomType())
+                    : ("1".equals(room.getRoomType()) || "2".equals(room.getRoomType()));
+            if (!typeMatch) {
+                continue;
+            }
+            if (studentNum != null && room.getCapacity() < studentNum) {
+                continue;
+            }
+            list.add(room);
+        }
+        list.sort(Comparator.comparingInt(Classroom::getCapacity));
+        return list;
+    }
+
+    /** 为教学班的某一类学时排 count 次，返回成功次数（理论单节、实践两节连排） */
+    private int placeSessions(TeachingClass tc, List<Classroom> rooms, boolean practice, int count,
+                              List<Integer> dayOrder, List<Integer> periodOrder, List<Occ> occ,
+                              List<String> failDetail, String practiceRoomType,
+                              int sessionLen, String preferredRoomId, boolean pe) {
+        List<Classroom> candidates;
+        if (pe) {
+            // 体育课不占用教室，直接在操场（时间占用）排课
+            candidates = new ArrayList<>();
+            candidates.add(null);
+        } else {
+            candidates = filterRoomsByPart(rooms, practice, needSeats(tc), practiceRoomType);
+            if (candidates.isEmpty()) {
+                createConflict(tc.getTcId(), null, "04",
+                        "无满足要求的" + (practice ? "实践" : "理论") + "场地（需 " + needSeats(tc) + " 座）",
+                        "请调整场地类型或申请增开教室");
+                failDetail.add(tc.getTcId() + (practice ? " 无可用实践场地" : " 无可用理论教室"));
+                return 0;
+            }
+        }
+        Map<String, String> buildingOf = new HashMap<>();
+        for (Classroom r : rooms) {
+            buildingOf.put(r.getRoomId(), r.getBuilding());
+        }
+        int created = 0;
+        // 上课周次范围（16 周：1-16；前 8 周：1-8；后 8 周：9-16）
+        String weekRange = weekRangeOf(tc);
+        // 同一教学班两次课至少间隔一天（每周 2 次为周一/周三，3 次为周一/三/五）
+        Set<Integer> usedDays = new HashSet<>();
+        for (Occ o : occ) {
+            if (o.tcId.equals(tc.getTcId())) {
+                usedDays.add(o.day);
+            }
+        }
+        for (int i = 0; i < count; i++) {
+            // 优先选择与前几次课至少间隔一天的日期，且保证剩余次数仍排得下（否则 3 次/周会变成周二/四/五）
+            List<Integer> candidateDays = new ArrayList<>();
+            int remaining = count - i - 1;
+            for (int d : dayOrder) {
+                boolean gapOk = true;
+                for (int used : usedDays) {
+                    if (Math.abs(d - used) < 2) {
+                        gapOk = false;
+                        break;
+                    }
+                }
+                if (gapOk && feasibleRemaining(d, usedDays, remaining, dayOrder)) {
+                    candidateDays.add(d);
+                }
+            }
+            if (candidateDays.isEmpty()) {
+                // 放宽：仅保证间隔一天，周内天数不足时允许
+                for (int d : dayOrder) {
+                    boolean gapOk = true;
+                    for (int used : usedDays) {
+                        if (Math.abs(d - used) < 2) {
+                            gapOk = false;
+                            break;
+                        }
+                    }
+                    if (gapOk) {
+                        candidateDays.add(d);
+                    }
+                }
+            }
+            if (candidateDays.isEmpty()) {
+                candidateDays.addAll(dayOrder);
+            }
+            boolean placed = false;
+            // 先在所有可用日期的 1-10 节寻找位置，最后才落到 11-12 节（晚上非必要不排）
+            for (int startSlot : periodOrder) {
+                if (placed) {
+                    break;
+                }
+                int endSlot = startSlot + sessionLen - 1;
+                if (endSlot > LAST_SLOT) {
+                    continue;
+                }
+                for (int day : candidateDays) {
+                    if (unavailable(tc, day, startSlot)) {
+                        continue;
+                    }
+                    // 同班级换教室尽量同楼栋；同教师同课程优先沿用原教室
+                    List<Classroom> ordered = orderRooms(candidates, tc, day, occ, preferredRoomId, buildingOf);
+                    for (Classroom room : ordered) {
+                        List<String> conflicts = checkOcc(occ, tc, room, day, startSlot, endSlot);
+                        if (!conflicts.isEmpty()) {
+                            continue;
+                        }
+                        ScheduleResult sr = new ScheduleResult();
+                        sr.setSchedId(codeService.nextSchedId());
+                        sr.setTcId(tc.getTcId());
+                        sr.setRoomId(room == null ? null : room.getRoomId());
+                        sr.setWeekRange(weekRange);
+                        sr.setWeekDay(String.valueOf(day));
+                        sr.setStartSlot(startSlot);
+                        sr.setEndSlot(endSlot);
+                        sr.setSchedStatus("0");
+                        sr.setLockFlag("0");
+                        resultMapper.insert(sr);
+                        // 容量上限由排课教室决定；已有容量不覆盖，避免后续时段要求的座位数越来越大
+                        if (room != null && (tc.getCapacity() == null || tc.getCapacity() == 0)) {
+                            TeachingClass capacityUpdate = new TeachingClass();
+                            capacityUpdate.setTcId(tc.getTcId());
+                            capacityUpdate.setCapacity(room.getCapacity());
+                            tcMapper.updateById(capacityUpdate);
+                            tc.setCapacity(room.getCapacity());
+                        }
+                        int[] wr = parseWeekRange(weekRange);
+                        occ.add(new Occ(tc.getTcId(), tc.getTeacherId(),
+                                room == null ? null : room.getRoomId(),
+                                day, startSlot, endSlot, tc.getClassIds(), wr[0], wr[1]));
+                        usedDays.add(day);
+                        placed = true;
+                        created++;
+                        break;
+                    }
+                    if (placed) {
+                        break;
+                    }
+                }
+            }
+            if (!placed) {
+                String desc = describeFail(occ, tc, candidates, periodOrder);
+                createConflict(tc.getTcId(), null, "07",
+                        (practice ? "实践" : "理论") + "学时" + desc,
+                        "建议调整该教学班的上课时间或增开场地");
+                failDetail.add(tc.getTcId() + " 可用时段不足");
+                break;
+            }
+        }
+        return created;
+    }
+
+    /**
+     * 选择某天后是否仍能排下剩余次数：按间隔一天贪心统计后续可用的天数，
+     * 避免出现周二/周四之后再无间隔天、只能排成周二/四/五的情况。
+     */
+    private boolean feasibleRemaining(int candidateDay, Set<Integer> usedDays, int remaining,
+                                      List<Integer> dayOrder) {
+        if (remaining <= 0) {
+            return true;
+        }
+        Set<Integer> taken = new HashSet<>(usedDays);
+        taken.add(candidateDay);
+        int capacity = 0;
+        for (int d : dayOrder) {
+            boolean ok = true;
+            for (int u : taken) {
+                if (Math.abs(d - u) < 2) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                capacity++;
+                taken.add(d);
+            }
+        }
+        return capacity >= remaining;
+    }
+
+    /** 教室排序：本教学班已用/指定教室优先 > 同班当天同楼栋 > 其他，同档按容量升序 */
+    private List<Classroom> orderRooms(List<Classroom> candidates, TeachingClass tc, int day, List<Occ> occ,
+                                       String preferredRoomId, Map<String, String> buildingOf) {
+        if (candidates.size() <= 1) {
+            return candidates;
+        }
+        // 本教学班已排教室（尽量固定教室）；同班当天其他课程所在楼宇（换教室距离相近）
+        Set<String> ownRooms = new HashSet<>();
+        Set<String> sameBuilding = new HashSet<>();
+        for (Occ o : occ) {
+            if (o.roomId == null) {
+                continue;
+            }
+            if (o.tcId.equals(tc.getTcId())) {
+                ownRooms.add(o.roomId);
+            } else if (o.day == day && classOverlap(tc.getClassIds(), o.classIds)) {
+                sameBuilding.add(buildingOf.getOrDefault(o.roomId, ""));
+            }
+        }
+        List<Classroom> ordered = new ArrayList<>(candidates);
+        ordered.sort(Comparator
+                .comparingInt((Classroom r) -> {
+                    if (ownRooms.contains(r.getRoomId())
+                            || (preferredRoomId != null && preferredRoomId.equals(r.getRoomId()))) {
+                        return 0;
+                    }
+                    String b = buildingOf.getOrDefault(r.getRoomId(), "");
+                    return !b.isEmpty() && sameBuilding.contains(b) ? 1 : 2;
+                })
+                .thenComparingInt(r -> r.getCapacity() == null ? 0 : r.getCapacity()));
+        return ordered;
+    }
+
+    /** 手动选教室时按学时判断教室类型是否匹配 */
+    private boolean roomMatchByHours(TeachingClass tc, String roomType) {
+        int theory = tc.getTheoryHours() == null ? 0 : tc.getTheoryHours();
+        int practice = tc.getPracticeHours() == null ? 0 : tc.getPracticeHours();
+        if (theory == 0 && practice == 0) {
+            return roomTypeMatch(tc.getTeachType(), roomType);
+        }
+        Course course = tc.getCourseId() == null ? null : courseMapper.selectById(tc.getCourseId());
+        String practiceRoomType = course == null ? null : course.getPracticeRoomType();
+        boolean theoryRoom = "1".equals(roomType) || "2".equals(roomType);
+        boolean practiceRoom = practiceRoomMatches(practiceRoomType, roomType);
+        if (theory > 0 && practice > 0) {
+            return theoryRoom || practiceRoom;
+        }
+        return theory > 0 ? theoryRoom : practiceRoom;
+    }
+
+    /** 实践场地与教室类型匹配：机房(41)->机房3；实验室/金工(42/43/44/46)->实验室4；操场(45)不占教室 */
+    private boolean practiceRoomMatches(String practiceRoomType, String roomType) {
+        if (practiceRoomType == null || practiceRoomType.isBlank()) {
+            return "3".equals(roomType) || "4".equals(roomType);
+        }
+        return switch (practiceRoomType) {
+            case "41" -> "3".equals(roomType);
+            case "42", "43", "44", "46" -> "4".equals(roomType);
+            case "45" -> false;
+            default -> "3".equals(roomType) || "4".equals(roomType);
+        };
     }
 
     private List<Integer> buildPeriodOrder(TeachingClass tc, Course course, boolean morningFirst) {
@@ -529,6 +836,15 @@ public class ScheduleService {
                     order.add(0, p);
                 }
             }
+        }
+        // 第 11-12 节（晚上）非必要不排，放到最后再尝试
+        boolean has11 = order.remove(Integer.valueOf(11));
+        boolean has12 = order.remove(Integer.valueOf(12));
+        if (has11) {
+            order.add(11);
+        }
+        if (has12) {
+            order.add(12);
         }
         return order;
     }
@@ -676,21 +992,22 @@ public class ScheduleService {
 
     private List<String> checkOcc(List<Occ> occ, TeachingClass tc, Classroom room, int day, int start, int end) {
         List<String> conflicts = new ArrayList<>();
+        int[] wr = parseWeekRange(weekRangeOf(tc));
         for (Occ o : occ) {
-            if (o.day != day || !overlap(o.start, o.end, start, end)) {
+            if (o.day != day || !overlap(o.start, o.end, start, end) || !o.weekOverlap(wr[0], wr[1])) {
                 continue;
             }
             if (tc.getTeacherId() != null && tc.getTeacherId().equals(o.teacherId)) {
                 conflicts.add("教师冲突");
             }
-            if (room.getRoomId().equals(o.roomId)) {
+            if (room != null && room.getRoomId().equals(o.roomId)) {
                 conflicts.add("教室冲突");
             }
             if (classOverlap(tc.getClassIds(), o.classIds)) {
                 conflicts.add("班级冲突");
             }
         }
-        if (!roomTimeAvailable(room, day, start)) {
+        if (room != null && !roomTimeAvailable(room, day, start)) {
             conflicts.add("教室不可用时段");
         }
         return conflicts;
@@ -698,6 +1015,9 @@ public class ScheduleService {
 
     private String describeFail(List<Occ> occ, TeachingClass tc, List<Classroom> rooms, List<Integer> periods) {
         for (Classroom room : rooms) {
+            if (room == null) {
+                continue; // 体育课等无教室课程只校验时段占用
+            }
             for (int day = 1; day <= 5; day++) {
                 for (int p : periods) {
                     if (checkOcc(occ, tc, room, day, p, p + 1).isEmpty()) {

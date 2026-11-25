@@ -53,6 +53,7 @@ export const api = {
   updateCollege: (id, data) => http.put(`/colleges/${id}`, data),
   collegeStatus: (id, status) => http.put(`/colleges/${id}/status`, null, { params: { status } }),
   majors: (params) => http.get('/majors', { params }),
+  catalogMajors: (params) => http.get('/catalog/majors', { params }),
   addMajor: (data) => http.post('/majors', data),
   updateMajor: (id, data) => http.put(`/majors/${id}`, data),
   majorStatus: (id, status) => http.put(`/majors/${id}/status`, null, { params: { status } }),
@@ -62,6 +63,8 @@ export const api = {
 
   // 培养方案
   programs: (params) => http.get('/programs', { params }),
+  catalogPrograms: (params) => http.get('/catalog/programs', { params }),
+  catalogProgramCourses: (params) => http.get('/catalog/program-courses', { params }),
   saveProgram: (data) => http.post('/programs', data),
   reviseProgram: (data) => http.post('/programs/revise', data),
   programCourses: (params) => http.get('/programs/courses', { params }),
@@ -94,6 +97,17 @@ export const api = {
   teachingClasses: (params) => http.get('/teaching-classes', { params }),
   saveTeachingClass: (data) => http.post('/teaching-classes', data),
   batchGenerate: (data) => http.post('/teaching-classes/batch-generate', data),
+  tcClassCandidates: (params) => http.get('/teaching-classes/class-candidates', { params }),
+  tcCourseCandidates: (params) => http.get('/teaching-classes/course-candidates', { params }),
+  tcElectiveCandidates: (params) => http.get('/teaching-classes/elective-candidates', { params }),
+  claimTc: (tcId, capacity) =>
+    http.put(`/teaching-classes/${tcId}/claim`, null, { params: { capacity } }),
+  reviewTc: (tcId, pass, reason) =>
+    http.put(`/teaching-classes/${tcId}/review`, null, { params: { pass, reason } }),
+  assignTcTeacher: (tcId, teacherId) =>
+    http.put(`/teaching-classes/${tcId}/assign-teacher`, null, { params: { teacherId } }),
+  confirmTc: (tcId) => http.put(`/teaching-classes/${tcId}/confirm`),
+  declineTc: (tcId, reason) => http.put(`/teaching-classes/${tcId}/decline`, null, { params: { reason } }),
   tcStatus: (tcId, status, reason) =>
     http.put(`/teaching-classes/${tcId}/status`, null, { params: { status, reason } }),
   deleteTc: (tcId) => http.delete(`/teaching-classes/${tcId}`),
@@ -153,6 +167,8 @@ export const api = {
   evalPlans: (params) => http.get('/eval/plans', { params }),
   saveEvalPlan: (data) => http.post('/eval/plans', data),
   publishEvalPlan: (id) => http.post(`/eval/plans/${id}/publish`),
+  publishEvalResult: (id) => http.post(`/eval/plans/${id}/publish-result`),
+  revokeEvalResult: (id) => http.post(`/eval/plans/${id}/revoke-result`),
   finishEvalPlan: (id) => http.post(`/eval/plans/${id}/finish`),
   evalTasks: (id) => http.get(`/eval/plans/${id}/tasks`),
   submitEval: (data) => http.post('/eval/submit', data),

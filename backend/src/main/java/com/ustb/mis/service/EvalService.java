@@ -56,8 +56,12 @@ public class EvalService {
     }
 
     public List<EvalPlan> plans(String term) {
+        LoginUser user = UserContext.get();
+        // 教师只看到教务处已发布结果的方案，未发布前不开放评教结果
+        boolean teacher = user != null && user.getTeacherId() != null;
         return planMapper.selectList(Wrappers.<EvalPlan>lambdaQuery()
                 .eq(term != null && !term.isBlank(), EvalPlan::getTerm, term)
+                .eq(teacher, EvalPlan::getPlanStatus, "3")
                 .orderByDesc(EvalPlan::getPlanId));
     }
 
@@ -128,6 +132,42 @@ public class EvalService {
         update.setPlanStatus("2");
         planMapper.updateById(update);
         auditService.record("06", "eval_plan:" + planId, Map.of("planStatus", "1"),
+                Map.of("planStatus", "2"));
+    }
+
+    /** 教务处将评教结果发布给各任课教师：发布后教师仅能看到本人教学班的汇总结果 */
+    @Transactional
+    public void publishResult(String planId) {
+        EvalPlan plan = planMapper.selectById(planId);
+        if (plan == null) {
+            throw new BizException("评教方案不存在");
+        }
+        if (!"2".equals(plan.getPlanStatus())) {
+            throw new BizException("评教尚未结束并汇总，暂不能发布结果");
+        }
+        EvalPlan update = new EvalPlan();
+        update.setPlanId(planId);
+        update.setPlanStatus("3");
+        planMapper.updateById(update);
+        auditService.record("05", "eval_plan:" + planId, Map.of("planStatus", "2"),
+                Map.of("planStatus", "3"));
+    }
+
+    /** 撤回已发布的评教结果：撤回后教师端立即不可再查看，方案回到“已结束”状态 */
+    @Transactional
+    public void revokeResult(String planId) {
+        EvalPlan plan = planMapper.selectById(planId);
+        if (plan == null) {
+            throw new BizException("评教方案不存在");
+        }
+        if (!"3".equals(plan.getPlanStatus())) {
+            throw new BizException("评教结果尚未发布，无需撤回");
+        }
+        EvalPlan update = new EvalPlan();
+        update.setPlanId(planId);
+        update.setPlanStatus("2");
+        planMapper.updateById(update);
+        auditService.record("05", "eval_plan:" + planId, Map.of("planStatus", "3"),
                 Map.of("planStatus", "2"));
     }
 
@@ -239,10 +279,10 @@ public class EvalService {
         if (plan == null) {
             throw new BizException("评教方案不存在");
         }
-        // 教师只能看到评教结束（教务处汇总返回）后的结果，评教进行中不开放（教师端修改意见第 6 条）
+        // 教师只有教务处点击“发布结果”后才能查看本人教学班的评教结果
         LoginUser current = UserContext.get();
-        if (current != null && current.getTeacherId() != null && !"2".equals(plan.getPlanStatus())) {
-            throw new BizException(403, "评教尚未结束，结果由教务处在评教结束后反馈");
+        if (current != null && current.getTeacherId() != null && !"3".equals(plan.getPlanStatus())) {
+            throw new BizException(403, "评教结果尚未发布，请等待教务处在评教结束后发布");
         }
         List<Map<String, Object>> records = visibleRecords(plan, viewMapper.listEvalRecords(planId, null));
         Map<String, List<Map<String, Object>>> byTc = new LinkedHashMap<>();

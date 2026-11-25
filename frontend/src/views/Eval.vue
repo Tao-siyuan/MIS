@@ -14,7 +14,7 @@
             <span class="spacer" />
             <span class="muted">指标权重之和须等于 1</span>
           </div>
-          <el-table :data="plans" border size="small">
+          <el-table :data="pageRows" border size="small">
             <el-table-column prop="planId" label="方案编号" width="110" />
             <el-table-column prop="term" label="适用学期" width="130" />
             <el-table-column prop="planName" label="方案名称" min-width="220" show-overflow-tooltip />
@@ -26,12 +26,12 @@
             </el-table-column>
             <el-table-column label="状态" width="95">
               <template #default="{ row }">
-                <el-tag size="small" :type="['info', 'success', 'warning'][Number(row.planStatus)]">
-                  {{ { 0: '草案', 1: '已发布', 2: '已结束' }[row.planStatus] }}
+                <el-tag size="small" :type="['info', 'success', 'warning', 'success'][Number(row.planStatus)]">
+                  {{ { 0: '草案', 1: '已发布', 2: '已结束', 3: '结果已发布' }[row.planStatus] }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="180" fixed="right">
+            <el-table-column label="操作" width="250" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="row.planStatus === '0'" link type="primary" size="small" @click="publishPlan(row)">
                   发布方案
@@ -47,10 +47,25 @@
                 >
                   结束并汇总
                 </el-button>
+                <el-button v-if="row.planStatus === '2'" link type="success" size="small" @click="publishResult(row)">
+                  发布结果
+                </el-button>
+                <el-button v-if="row.planStatus === '3'" link type="danger" size="small" @click="revokeResult(row)">
+                  撤回结果
+                </el-button>
                 <el-button link type="primary" size="small" @click="viewStats(row)">统计</el-button>
               </template>
             </el-table-column>
           </el-table>
+
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :page-sizes="[10, 20, 30, 50]"
+            :total="plans.length"
+            layout="total, sizes, prev, pager, next, jumper"
+            style="margin-top: 14px; justify-content: flex-end"
+          />
         </el-tab-pane>
 
         <el-tab-pane v-if="canSubmit" label="我的评教" name="task">
@@ -101,6 +116,19 @@
             </el-select>
             <span class="spacer" />
           </div>
+          <el-empty
+            v-if="isTeacher && !statsPlans.length"
+            description="教务处尚未发布评教结果，发布后可在此查看本人教学班的评价"
+            :image-size="80"
+          />
+          <el-alert
+            v-if="isTeacher && stats"
+            type="info"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 12px"
+            title="仅显示本人任教教学班的评教汇总结果，学生姓名、学号等个人信息不对外公开。"
+          />
           <div v-if="stats" class="stat-grid">
             <div class="stat-card">
               <div class="label">有效样本</div>
@@ -116,13 +144,26 @@
             </div>
           </div>
           <el-row v-if="stats" :gutter="16">
-            <el-col :span="14">
+            <el-col :span="isTeacher ? 24 : 14">
               <el-table :data="stats.tcStats" border size="small" max-height="420">
                 <el-table-column prop="courseName" label="课程" min-width="150" show-overflow-tooltip />
                 <el-table-column prop="teacherName" label="教师" width="100" />
                 <el-table-column prop="collegeName" label="开课学院" width="140" show-overflow-tooltip />
                 <el-table-column prop="sample" label="样本" width="70" />
                 <el-table-column prop="avgScore" label="均分" width="80" />
+                <el-table-column label="各维度均分" min-width="220">
+                  <template #default="{ row }">
+                    <el-tag
+                      v-for="(v, k) in row.itemAvg || {}"
+                      :key="k"
+                      size="small"
+                      type="info"
+                      style="margin: 0 4px 2px 0"
+                    >
+                      {{ k }} {{ v }}
+                    </el-tag>
+                  </template>
+                </el-table-column>
                 <el-table-column label="结果" width="100">
                   <template #default="{ row }">
                     <el-tag v-if="row.insufficient" size="small" type="info">样本不足</el-tag>
@@ -131,7 +172,7 @@
                 </el-table-column>
               </el-table>
             </el-col>
-            <el-col :span="10">
+            <el-col v-if="!isTeacher" :span="10">
               <div class="panel">
                 <div class="panel-title">分数分布</div>
                 <div v-for="(v, k) in stats.distribution" :key="k" class="dist-row">
@@ -235,12 +276,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { userStore } from '../store/user'
 
 const user = userStore()
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return plans.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 /** 评教方案管理仅授予 P18（教务处），学生/教师默认进入各自页签（P0-02、P2-11） */
 const canManage = computed(() => user.hasPerm('P18'))
 const isTeacher = computed(() => !!user.user?.teacherId)
@@ -248,8 +296,10 @@ const isTeacher = computed(() => !!user.user?.teacherId)
 const canViewStats = computed(() => canManage.value || isTeacher.value)
 /** 只有学生参与评教，教师/教务不提交评教（教师端修改意见第 6 条） */
 const canSubmit = computed(() => !canManage.value && !isTeacher.value)
-/** 教师只能选择已结束的方案查看结果；教务处可选全部方案 */
-const statsPlans = computed(() => (isTeacher.value ? plans.value.filter((p) => p.planStatus === '2') : plans.value))
+/** 教师只能选择教务处已发布结果的方案查看本人教学班结果；教务处可选全部方案 */
+const statsPlans = computed(() =>
+  isTeacher.value ? plans.value.filter((p) => String(p.planStatus) === '3') : plans.value
+)
 const tab = ref(canManage.value ? 'plan' : isTeacher.value ? 'stats' : 'task')
 const plans = ref([])
 const tasks = ref([])
@@ -284,6 +334,7 @@ const percent = (v) => {
 
 async function loadPlans() {
   plans.value = await api.evalPlans()
+  page.value = 1
   if (!taskPlanId.value) taskPlanId.value = plans.value.find((p) => p.planStatus === '1')?.planId || ''
   if (!statsPlanId.value) statsPlanId.value = statsPlans.value[0]?.planId || ''
 }
@@ -347,6 +398,26 @@ async function finishPlan(row) {
   await loadPlans()
 }
 
+async function publishResult(row) {
+  await ElMessageBox.confirm(
+    '发布后各任课教师可查看本人教学班的评教结果（仅本人数据，学生信息保密），确认发布？',
+    '提示',
+    { type: 'warning' }
+  )
+  await api.publishEvalResult(row.planId)
+  ElMessage.success('评教结果已发布给任课教师')
+  await loadPlans()
+}
+
+async function revokeResult(row) {
+  await ElMessageBox.confirm('撤回后任课教师将立即无法查看该方案的评教结果，确认撤回？', '提示', {
+    type: 'warning'
+  })
+  await api.revokeEvalResult(row.planId)
+  ElMessage.success('评教结果已撤回')
+  await loadPlans()
+}
+
 async function viewStats(row) {
   statsPlanId.value = row.planId
   tab.value = 'stats'
@@ -380,6 +451,8 @@ async function submitEval() {
 onMounted(async () => {
   await loadPlans()
   await loadTasks()
+  // 教师默认进入结果统计页签，需在方案加载完成后主动拉取统计，否则页面空白
+  await loadStats()
 })
 </script>
 

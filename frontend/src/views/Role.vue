@@ -52,7 +52,7 @@
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
       </div>
-      <el-table :data="users" border size="small">
+      <el-table :data="pageRows" border size="small">
         <el-table-column prop="userId" label="用户编号" width="130" />
         <el-table-column prop="userName" label="登录名" width="110" />
         <el-table-column prop="realName" label="姓名" width="100" />
@@ -90,6 +90,15 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="size"
+        :page-sizes="[10, 20, 30, 50]"
+        :total="users.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 14px; justify-content: flex-end"
+      />
     </div>
 
     <el-dialog v-model="roleDialog" :title="roleForm.isNew ? '新增角色' : '配置角色权限'" width="620px">
@@ -131,12 +140,19 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
 const roles = ref([])
 const users = ref([])
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return users.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 const keyword = ref('')
 const roleDialog = ref(false)
 const roleForm = reactive({})
@@ -166,7 +182,8 @@ const permList = [
   { code: 'P21', name: '新增课程学院初审' },
   { code: 'P22', name: '跨院课程确认' },
   { code: 'P23', name: '通识课程承接确认' },
-  { code: 'P24', name: '学分认定审核' }
+  { code: 'P24', name: '学分认定审核' },
+  { code: 'P25', name: '专业与培养方案浏览' }
 ]
 const permName = (code) => permList.find((p) => p.code === code)?.name || code
 
@@ -176,6 +193,7 @@ async function loadRoles() {
 
 async function loadUsers() {
   users.value = await api.users({ keyword: keyword.value || undefined })
+  page.value = 1
 }
 
 function openRole(row) {

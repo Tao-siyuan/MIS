@@ -40,6 +40,24 @@ public class ProgramController {
         return Result.ok(programService.list(majorId, planStatus, keyword));
     }
 
+    /** 全量培养方案浏览（P25）：不做学院过滤，供教师/学生/学院教务只读查看 */
+    @GetMapping("/catalog/programs")
+    @RequirePerm("P25")
+    public Result<List<Map<String, Object>>> catalogPrograms(@RequestParam(required = false) String majorId,
+                                                             @RequestParam(required = false) String planStatus,
+                                                             @RequestParam(required = false) String keyword) {
+        return Result.ok(programService.catalog(majorId, planStatus, keyword));
+    }
+
+    /** 方案课程明细浏览（P25） */
+    @GetMapping("/catalog/program-courses")
+    @RequirePerm("P25")
+    public Result<List<Map<String, Object>>> catalogProgramCourses(@RequestParam String majorId,
+                                                                   @RequestParam String grade,
+                                                                   @RequestParam String programType) {
+        return Result.ok(programService.courses(majorId, grade, programType));
+    }
+
     @PostMapping("/programs")
     @RequirePerm("P02")
     public Result<Void> save(@RequestBody Map<String, Object> body) {
@@ -119,7 +137,7 @@ public class ProgramController {
     }
 
     @PutMapping("/programs/cross-confirm")
-    @RequirePerm({"P22", "P03"})
+    @RequirePerm("P22")
     public Result<Void> crossConfirm(@RequestBody Map<String, Object> body) {
         programService.confirmCross(str(body.get("majorId")), str(body.get("grade")),
                 str(body.get("programType")), str(body.get("courseId")), str(body.get("status")));
@@ -127,11 +145,13 @@ public class ProgramController {
     }
 
     @GetMapping("/programs/pending-cross")
-    @RequirePerm({"P22", "P03"})
+    @RequirePerm("P22")
     public Result<List<Map<String, Object>>> pendingCross() {
-        String collegeId = "2".equals(UserContext.require().getDataScope())
-                ? UserContext.require().getCollegeId() : null;
-        return Result.ok(programService.pendingCross(collegeId));
+        LoginUser user = UserContext.require();
+        if (!"2".equals(user.getDataScope())) {
+            return Result.ok(List.of());
+        }
+        return Result.ok(programService.pendingCross(user.getCollegeId()));
     }
 
     // ---------------- 通识课程计划 ----------------

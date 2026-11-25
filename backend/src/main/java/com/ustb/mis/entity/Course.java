@@ -21,6 +21,12 @@ public class Course {
     private String courseType;
     private BigDecimal credit;
     private Integer totalHours;
+    /** 理论学时：按 2 学时递增，可为 0 */
+    private Integer theoryHours;
+    /** 实践学时：为 0 或不少于 8 学时且按 4 学时递增 */
+    private Integer practiceHours;
+    /** 实践学时所需教室类型：41机房/42物理实验室/43化学实验室/44生物实验室/45操场/46金工实习场地/47其他 */
+    private String practiceRoomType;
     private String assessType;
     private String openCollege;
     private String preCourseId;

@@ -74,12 +74,12 @@ public class ProgramService {
     }
 
     public List<Map<String, Object>> list(String majorId, String planStatus, String keyword) {
-        LoginUser user = UserContext.get();
-        String collegeId = null;
-        if (user != null && "2".equals(user.getDataScope())) {
-            collegeId = user.getCollegeId();
-        }
-        return viewMapper.listPrograms(collegeId, majorId, planStatus, keyword);
+        return viewMapper.listPrograms(null, majorId, planStatus, keyword);
+    }
+
+    /** 全量方案浏览（P25），不受用户数据范围限制 */
+    public List<Map<String, Object>> catalog(String majorId, String planStatus, String keyword) {
+        return viewMapper.listPrograms(null, majorId, planStatus, keyword);
     }
 
     public List<Map<String, Object>> courses(String majorId, String grade, String programType) {
@@ -109,6 +109,7 @@ public class ProgramService {
         if (major == null) {
             throw new BizException("专业不存在");
         }
+        requireProgramEditable(major.getCollegeId());
         MajorProgram current = find(majorId, grade, programType);
         if (current != null && !"0".equals(current.getPlanStatus())) {
             throw new BizException("方案已提交评审或已发布，不能直接编辑；如需修订请使用“编制新版本”");
@@ -129,6 +130,9 @@ public class ProgramService {
         MajorProgram program = new MajorProgram();
         program.setTotalCredit(totalCredit);
         program.setGoalDesc(str(body.get("goalDesc")));
+        program.setGraduateDesc(str(body.get("graduateDesc")));
+        program.setRequireDesc(str(body.get("requireDesc")));
+        program.setPlanDesc(str(body.get("planDesc")));
         program.setDualQuota(body.get("dualQuota") == null ? null : Integer.valueOf(str(body.get("dualQuota"))));
         if (current == null) {
             if (!"1".equals(major.getMajorStatus())) {
@@ -160,6 +164,7 @@ public class ProgramService {
         if ("0".equals(current.getPlanStatus())) {
             throw new BizException("当前方案正在编制中，可直接编辑，无需编制新版本");
         }
+        requireProgramEditableByMajor(majorId);
         archive(current);
         MajorProgram update = new MajorProgram();
         update.setVersion(nextVersion(current.getVersion()));
@@ -209,6 +214,7 @@ public class ProgramService {
         if (program == null) {
             throw new BizException("培养方案不存在，请先保存方案主信息");
         }
+        requireProgramEditableByMajor(majorId);
         requireEditable(program);
         Course course = courseMapper.selectById(courseId);
         if (course == null) {
@@ -269,6 +275,7 @@ public class ProgramService {
         if (program == null) {
             throw new BizException("方案不存在");
         }
+        requireProgramEditableByMajor(majorId);
         requireEditable(program);
         int used = programCourseMapper.delete(Wrappers.<ProgramCourse>lambdaQuery()
                 .eq(ProgramCourse::getMajorId, majorId)
@@ -363,6 +370,7 @@ public class ProgramService {
         if (!"0".equals(program.getPlanStatus())) {
             throw new BizException("仅编制中的方案可提交评审");
         }
+        requireProgramEditableByMajor(majorId);
         long count = countCourses(majorId, grade, programType);
         if (count == 0) {
             throw new BizException("方案课程为空，不能提交评审");
@@ -399,6 +407,7 @@ public class ProgramService {
             if (!"1".equals(current)) {
                 throw new BizException("仅“院系初审”状态的方案可通过院系初审");
             }
+            requireProgramEditableByMajor(majorId);
         } else if ("3".equals(status)) {
             if (!"2".equals(current)) {
                 throw new BizException("仅“教务处审核”状态的方案可发布，请先完成院系初审");
@@ -445,14 +454,12 @@ public class ProgramService {
             throw new BizException("方案已发布，跨院确认已冻结");
         }
         LoginUser user = UserContext.require();
-        if (!"1".equals(user.getDataScope())) {
-            Course course = courseMapper.selectById(courseId);
-            if (course == null) {
-                throw new BizException("课程不存在");
-            }
-            if (!course.getOpenCollege().equals(user.getCollegeId())) {
-                throw new BizException("仅开课学院可确认该门跨院课程");
-            }
+        Course course = courseMapper.selectById(courseId);
+        if (course == null) {
+            throw new BizException("课程不存在");
+        }
+        if (!course.getOpenCollege().equals(user.getCollegeId())) {
+            throw new BizException("仅开课学院教务员可确认该门跨院课程");
         }
         ProgramCourse update = new ProgramCourse();
         update.setCrossStatus(status);
@@ -593,6 +600,9 @@ public class ProgramService {
                     pc.put("grade", p.getGrade());
                     pc.put("programType", p.getProgramType());
                     pc.put("planStatus", p.getPlanStatus());
+                    Object openName = pc.get("openCollegeName");
+                    pc.put("receiveCollegeId", pc.get("openCollege"));
+                    pc.put("receiveCollegeName", openName == null ? "开课学院教务员" : openName + "教务员");
                     all.add(pc);
                 }
             }
@@ -611,6 +621,21 @@ public class ProgramService {
         if (!"0".equals(program.getPlanStatus())) {
             throw new BizException("仅“编制中”的方案允许修改课程明细，当前状态不可编辑");
         }
+    }
+
+    /** 学院教务员仅可编辑本学院专业的培养方案；校级账号不限制 */
+    private void requireProgramEditable(String collegeId) {
+        LoginUser user = UserContext.get();
+        if (user != null && "2".equals(user.getDataScope())
+                && !user.getCollegeId().equals(collegeId)) {
+            throw new BizException("学院教务员仅可编辑本学院专业的培养方案");
+        }
+    }
+
+    /** 按专业编号校验方案所属学院 */
+    private void requireProgramEditableByMajor(String majorId) {
+        Major major = majorMapper.selectById(majorId);
+        requireProgramEditable(major == null ? null : major.getCollegeId());
     }
 
     private void updateStatus(MajorProgram program, String status, String opinion) {

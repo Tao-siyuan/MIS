@@ -16,6 +16,7 @@ const routes = [
       { path: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { title: '工作台' } },
       { path: 'colleges', component: () => import('../views/CollegeMajor.vue'), meta: { title: '学院与专业', perm: ['P01'] } },
       { path: 'programs', component: () => import('../views/Program.vue'), meta: { title: '培养方案', perm: ['P02', 'P03'] } },
+      { path: 'catalog', component: () => import('../views/Catalog.vue'), meta: { title: '专业与方案总览', perm: ['P25'] } },
       { path: 'general-plan', component: () => import('../views/GeneralPlan.vue'), meta: { title: '通识课程计划', perm: ['P04'] } },
       { path: 'courses', component: () => import('../views/Course.vue'), meta: { title: '课程库', perm: ['P05'] } },
       { path: 'course-apply', component: () => import('../views/CourseApply.vue'), meta: { title: '新增课程申报', perm: ['P06', 'P07', 'P21'] } },

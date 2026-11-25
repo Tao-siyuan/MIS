@@ -61,7 +61,7 @@
             <span class="spacer" />
             <span class="muted">共 {{ majors.length }} 个专业</span>
           </div>
-          <el-table :data="majors" size="small" height="560">
+          <el-table :data="pageRows" size="small" height="560">
             <el-table-column prop="majorId" label="专业代码" width="90" />
             <el-table-column prop="majorName" label="专业名称" show-overflow-tooltip />
             <el-table-column prop="collegeName" label="所属学院" width="140" show-overflow-tooltip />
@@ -85,6 +85,15 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :page-sizes="[10, 20, 30, 50]"
+            :total="majors.length"
+            layout="total, sizes, prev, pager, next, jumper"
+            style="margin-top: 14px; justify-content: flex-end"
+          />
         </div>
       </el-col>
     </el-row>
@@ -145,12 +154,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 
 const colleges = ref([])
 const majors = ref([])
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return majors.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 const selectedCollege = ref(null)
 const collegeKeyword = ref('')
 const majorKeyword = ref('')
@@ -177,6 +193,7 @@ async function loadMajors() {
     collegeId: selectedCollege.value?.collegeId,
     keyword: majorKeyword.value || undefined
   })
+  page.value = 1
 }
 
 function selectCollege(row) {

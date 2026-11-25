@@ -24,7 +24,7 @@
         <el-button v-if="canApply" type="primary" @click="openApply">课程申报</el-button>
       </div>
 
-      <el-table :data="rows" border size="small">
+      <el-table :data="pageRows" border size="small">
         <el-table-column prop="applyId" label="申请编号" width="120" />
         <el-table-column prop="courseName" label="拟开课程" min-width="170" show-overflow-tooltip />
         <el-table-column prop="teacherName" label="申报人" width="100" />
@@ -73,6 +73,15 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="size"
+        :page-sizes="[10, 20, 30, 50]"
+        :total="rows.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 14px; justify-content: flex-end"
+      />
     </div>
 
     <el-dialog v-model="applyDialog" title="新增课程申报" width="520px">
@@ -165,12 +174,19 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../api'
 import { hasPerm, userStore } from '../store/user'
 
 const user = userStore()
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return rows.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 /** 教务处（校级）：申报通识并下发学院，终审入库 */
 const isSchoolOfficer = computed(() => hasPerm('P07'))
 /** 学院教务：申报专业必修/选修，初审本学院申报并补充下发的通识课程 */
@@ -224,6 +240,7 @@ async function load() {
     status: status.value || undefined,
     mine: scope.value === 'mine' ? '1' : undefined
   })
+  page.value = 1
 }
 
 function openApply() {

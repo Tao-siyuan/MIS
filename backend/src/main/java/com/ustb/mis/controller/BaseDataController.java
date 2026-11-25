@@ -75,6 +75,7 @@ public class BaseDataController {
     }
 
     @PostMapping("/colleges")
+    @RequirePerm("P01")
     public Result<Void> addCollege(@RequestBody College college) {
         if (college.getCollegeId() == null || !college.getCollegeId().matches("\\d{2}")) {
             throw new BizException("学院编号须为 2 位数字");
@@ -89,6 +90,7 @@ public class BaseDataController {
     }
 
     @PutMapping("/colleges/{id}")
+    @RequirePerm("P01")
     public Result<Void> updateCollege(@PathVariable String id, @RequestBody College college) {
         College old = collegeMapper.selectById(id);
         if (old == null) {
@@ -101,6 +103,7 @@ public class BaseDataController {
     }
 
     @PutMapping("/colleges/{id}/status")
+    @RequirePerm("P01")
     public Result<Void> collegeStatus(@PathVariable String id, @RequestParam String status) {
         College old = collegeMapper.selectById(id);
         if (old == null) {
@@ -131,7 +134,15 @@ public class BaseDataController {
         return Result.ok(viewMapper.listMajors(collegeId, keyword));
     }
 
+    /** 全量专业浏览（P25）：不做学院过滤，供教师/学生/学院教务只读查看 */
+    @GetMapping("/catalog/majors")
+    @RequirePerm("P25")
+    public Result<List<Map<String, Object>>> catalogMajors(@RequestParam(required = false) String keyword) {
+        return Result.ok(viewMapper.listMajors(null, keyword));
+    }
+
     @PostMapping("/majors")
+    @RequirePerm({"P01", "P02"})
     public Result<Void> addMajor(@RequestBody Major major) {
         if (major.getMajorId() == null || !major.getMajorId().matches("\\d{6}T?")) {
             throw new BizException("专业编号须为 6 位数字（特设专业可带 T）");
@@ -142,6 +153,7 @@ public class BaseDataController {
         if (collegeMapper.selectById(major.getCollegeId()) == null) {
             throw new BizException("所属学院不存在");
         }
+        requireMajorEditable(major.getCollegeId());
         major.setMajorStatus("1");
         majorMapper.insert(major);
         auditService.record("01", "major:" + major.getMajorId(), null, major);
@@ -149,11 +161,14 @@ public class BaseDataController {
     }
 
     @PutMapping("/majors/{id}")
+    @RequirePerm({"P01", "P02"})
     public Result<Void> updateMajor(@PathVariable String id, @RequestBody Major major) {
         Major old = majorMapper.selectById(id);
         if (old == null) {
             throw new BizException("专业不存在");
         }
+        requireMajorEditable(old.getCollegeId());
+        requireMajorEditable(major.getCollegeId());
         major.setMajorId(id);
         majorMapper.updateById(major);
         auditService.record("02", "major:" + id, old, major);
@@ -161,11 +176,13 @@ public class BaseDataController {
     }
 
     @PutMapping("/majors/{id}/status")
+    @RequirePerm({"P01", "P02"})
     public Result<Void> majorStatus(@PathVariable String id, @RequestParam String status) {
         Major old = majorMapper.selectById(id);
         if (old == null) {
             throw new BizException("专业不存在");
         }
+        requireMajorEditable(old.getCollegeId());
         if ("0".equals(status)) {
             long active = programMapper.selectCount(Wrappers.<MajorProgram>lambdaQuery()
                     .eq(MajorProgram::getMajorId, id).eq(MajorProgram::getPlanStatus, "3"));
@@ -183,7 +200,13 @@ public class BaseDataController {
     }
 
     @DeleteMapping("/majors/{id}")
+    @RequirePerm({"P01", "P02"})
     public Result<Void> deleteMajor(@PathVariable String id) {
+        Major major = majorMapper.selectById(id);
+        if (major == null) {
+            throw new BizException("专业不存在");
+        }
+        requireMajorEditable(major.getCollegeId());
         if (programMapper.selectCount(Wrappers.<MajorProgram>lambdaQuery()
                 .eq(MajorProgram::getMajorId, id)) > 0) {
             throw new BizException("该专业已被培养方案引用，禁止删除，请使用停招");
@@ -244,5 +267,14 @@ public class BaseDataController {
         }
         list.forEach(t -> t.setUserId(userIds.get(t.getTeacherId())));
         return Result.ok(list);
+    }
+
+    /** 学院教务员仅可编辑本学院专业；校级账号不限制 */
+    private void requireMajorEditable(String collegeId) {
+        LoginUser user = UserContext.require();
+        if ("2".equals(user.getDataScope())
+                && !user.getCollegeId().equals(collegeId)) {
+            throw new BizException("学院教务员仅可编辑本学院专业");
+        }
     }
 }

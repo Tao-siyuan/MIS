@@ -23,7 +23,7 @@
         <el-button v-if="canApply" type="primary" @click="openApply">申请调课</el-button>
       </div>
 
-      <el-table :data="rows" border size="small">
+      <el-table :data="pageRows" border size="small">
         <el-table-column prop="adjustId" label="调课编号" width="120" />
         <el-table-column prop="courseName" label="课程" min-width="150" show-overflow-tooltip />
         <el-table-column prop="teacherName" label="教师" width="95" />
@@ -72,6 +72,15 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <el-pagination
+        v-model:current-page="page"
+        v-model:page-size="size"
+        :page-sizes="[10, 20, 30, 50]"
+        :total="rows.length"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="margin-top: 14px; justify-content: flex-end"
+      />
     </div>
 
     <el-dialog v-model="applyDialog" title="调课申请" width="560px">
@@ -162,6 +171,13 @@ const isCollegeOfficer = computed(() => hasPerm('P21') && !hasPerm('P11'))
 const canApply = computed(() => !!user.user?.teacherId || hasPerm('P11'))
 
 const rows = ref([])
+const page = ref(1)
+const size = ref(20)
+const pageRows = computed(() => {
+  const start = (page.value - 1) * size.value
+  return rows.value.slice(start, start + size.value)
+})
+watch(size, () => { page.value = 1 })
 const schedules = ref([])
 const roomOptions = ref([])
 const roomHint = ref(null)
@@ -213,6 +229,7 @@ watch(
 
 async function load() {
   rows.value = await api.adjustments({ term: term.value, approveStatus: status.value || undefined })
+  page.value = 1
 }
 
 async function openApply() {

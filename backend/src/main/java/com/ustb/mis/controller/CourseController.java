@@ -101,13 +101,20 @@ public class CourseController {
                 BigDecimal.valueOf(course.getTotalHours())) != 0) {
             throw new BizException("学分与学时不符合 1∶16 的换算关系，请确认");
         }
+        // 未指定学时划分时默认全部计入理论学时
+        if (course.getTheoryHours() == null && course.getPracticeHours() == null) {
+            int total = course.getTotalHours() == null ? 0 : course.getTotalHours();
+            course.setTheoryHours(total);
+            course.setPracticeHours(0);
+        }
+        validateHours(course);
         course.setCourseStatus("1");
         courseMapper.insert(course);
         auditService.record("01", "course:" + course.getCourseId(), null, course);
         return Result.ok();
     }
 
-    /** 已被方案引用的课程仅允许修改大纲与考核方式（P1-05） */
+    /** 已被方案引用的课程仅允许修改大纲与考核方式；学时划分仅系统管理员与教务处管理员可调整（P1-05） */
     @PutMapping("/courses/{id}")
     @RequirePerm("P05")
     public Result<Void> update(@PathVariable String id, @RequestBody Course course) {
@@ -115,6 +122,26 @@ public class CourseController {
         if (old == null) {
             throw new BizException("课程不存在");
         }
+        boolean hoursChanged = (course.getTheoryHours() != null
+                && !course.getTheoryHours().equals(old.getTheoryHours()))
+                || (course.getPracticeHours() != null
+                && !course.getPracticeHours().equals(old.getPracticeHours()))
+                || (course.getPracticeRoomType() != null
+                && !course.getPracticeRoomType().equals(old.getPracticeRoomType()));
+        if (hoursChanged && !isSchoolAdmin(UserContext.require())) {
+            throw new BizException(403, "仅系统管理员与教务处管理员可调整课程学时划分");
+        }
+        // 未提交的学时字段沿用原值，便于统一校验
+        if (course.getTheoryHours() == null) {
+            course.setTheoryHours(old.getTheoryHours() == null ? 0 : old.getTheoryHours());
+        }
+        if (course.getPracticeHours() == null) {
+            course.setPracticeHours(old.getPracticeHours() == null ? 0 : old.getPracticeHours());
+        }
+        if (course.getPracticeRoomType() == null) {
+            course.setPracticeRoomType(old.getPracticeRoomType());
+        }
+        validateHours(course);
         long used = programCourseMapper.selectCount(Wrappers.<ProgramCourse>lambdaQuery()
                 .eq(ProgramCourse::getCourseId, id));
         if (used > 0) {
@@ -131,14 +158,74 @@ public class CourseController {
             update.setCourseId(id);
             update.setSyllabus(course.getSyllabus());
             update.setAssessType(course.getAssessType());
+            update.setTheoryHours(course.getTheoryHours());
+            update.setPracticeHours(course.getPracticeHours());
+            update.setPracticeRoomType(course.getPracticeRoomType());
             courseMapper.updateById(update);
+            if (hoursChanged) {
+                syncTeachingClassHours(id, course);
+            }
             auditService.record("02", "course:" + id, old, update);
             return Result.ok();
         }
         course.setCourseId(id);
         courseMapper.updateById(course);
+        if (hoursChanged) {
+            syncTeachingClassHours(id, course);
+        }
         auditService.record("02", "course:" + id, old, course);
         return Result.ok();
+    }
+
+    /** 课程库学时划分变更后同步到该课程的教学班，保证教学班学时与课程库一致 */
+    private void syncTeachingClassHours(String courseId, Course course) {
+        var wrapper = Wrappers.<TeachingClass>lambdaUpdate()
+                .eq(TeachingClass::getCourseId, courseId)
+                .set(TeachingClass::getTheoryHours, course.getTheoryHours())
+                .set(TeachingClass::getPracticeHours, course.getPracticeHours());
+        if (course.getTotalHours() != null) {
+            wrapper.set(TeachingClass::getHours, course.getTotalHours());
+        }
+        tcMapper.update(null, wrapper);
+    }
+
+    /** 系统管理员(R01)与教务处管理员(R02)保留学时划分的修改权限 */
+    private boolean isSchoolAdmin(LoginUser user) {
+        return "R01".equals(user.getRoleId()) || "R02".equals(user.getRoleId());
+    }
+
+    /** 学时划分校验：理论按 2 学时递增；实践为 0 或不少于 8 学时且按 4 学时递增，并须指定实践教室类型 */
+    private void validateHours(Course course) {
+        int total = course.getTotalHours() == null ? 0 : course.getTotalHours();
+        int theory = course.getTheoryHours() == null ? 0 : course.getTheoryHours();
+        int practice = course.getPracticeHours() == null ? 0 : course.getPracticeHours();
+        if (theory < 0 || practice < 0) {
+            throw new BizException("学时不能为负数");
+        }
+        if (theory + practice != total) {
+            throw new BizException("理论学时与实践学时之和应等于总学时 " + total);
+        }
+        if (theory % 2 != 0) {
+            throw new BizException("理论学时须按 2 学时递增");
+        }
+        if (practice > 0) {
+            if (practice < 8) {
+                throw new BizException("实践学时不少于 8 学时");
+            }
+            if (practice % 4 != 0) {
+                throw new BizException("实践学时须按 4 学时递增");
+            }
+            String roomType = course.getPracticeRoomType();
+            if (roomType == null || roomType.isBlank()) {
+                throw new BizException("请选择实践学时所需教室类型");
+            }
+            if (!List.of("41", "42", "43", "44", "45", "46", "47").contains(roomType)) {
+                throw new BizException("实践教室类型不正确");
+            }
+        } else {
+            // 无实践学时则清空实践场地要求
+            course.setPracticeRoomType("");
+        }
     }
 
     /** 停开校验：覆盖 0/1/3/4 全部在用状态，并叠加排课结果判断（P1-04） */

@@ -26,7 +26,10 @@ public class TeachingClass {
     private String tcType;
     private String teachType;
     private Integer hours;
+    private Integer theoryHours;
+    private Integer practiceHours;
     private Integer weekCount;
+    private Integer weekStart;
     private String preferSlot;
     private String unavailableTime;
     private String multiclassPrefer;

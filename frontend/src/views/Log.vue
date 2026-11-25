@@ -41,11 +41,13 @@
 
       <el-pagination
         v-model:current-page="page"
-        :page-size="size"
+        v-model:page-size="size"
+        :page-sizes="[10, 20, 30, 50]"
         :total="total"
-        layout="total, prev, pager, next"
+        layout="total, sizes, prev, pager, next, jumper"
         style="margin-top: 14px; justify-content: flex-end"
         @current-change="load"
+        @size-change="onSizeChange"
       />
     </div>
   </div>
@@ -58,7 +60,7 @@ import api from '../api'
 const rows = ref([])
 const total = ref(0)
 const page = ref(1)
-const size = 20
+const size = ref(20)
 const startDate = ref('')
 const endDate = ref('')
 const query = reactive({ userId: '', operType: '', operObject: '' })
@@ -68,7 +70,7 @@ const operTypeName = (c) => ({ '01': '新增', '02': '修改', '03': '删除', '
 async function load() {
   const data = await api.logs({
     page: page.value,
-    size,
+    size: size.value,
     userId: query.userId || undefined,
     operType: query.operType || undefined,
     operObject: query.operObject || undefined,
@@ -80,6 +82,11 @@ async function load() {
 }
 
 function search() {
+  page.value = 1
+  load()
+}
+
+function onSizeChange() {
   page.value = 1
   load()
 }
