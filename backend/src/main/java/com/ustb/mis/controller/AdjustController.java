@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
@@ -112,9 +113,9 @@ public class AdjustController {
             throw new BizException(403, "只能对本人任教的教学班发起调课");
         }
         String roomId = str(body.get("roomId"));
-        int day = Integer.parseInt(str(body.get("weekDay")));
-        int start = Integer.parseInt(str(body.get("startSlot")));
-        int end = Integer.parseInt(str(body.get("endSlot")));
+        int day = parseSlot(body.get("weekDay"), "新星期");
+        int start = parseSlot(body.get("startSlot"), "新节次");
+        int end = parseSlot(body.get("endSlot"), "新节次");
         List<String> conflicts = scheduleService.checkConflict(tc, roomId, day, start, end, schedId);
         if (!conflicts.isEmpty()) {
             throw new BizException("新安排存在冲突，请更换时段或教室：" + String.join("；", conflicts));
@@ -140,8 +141,13 @@ public class AdjustController {
         record.setNewStartSlot(start);
         record.setNewEndSlot(end);
         record.setReason(str(body.get("reason")));
-        if (body.get("effectDate") != null) {
-            record.setEffectDate(LocalDate.parse(str(body.get("effectDate"))));
+        String effectDate = str(body.get("effectDate"));
+        if (effectDate != null && !effectDate.isBlank()) {
+            try {
+                record.setEffectDate(LocalDate.parse(effectDate));
+            } catch (DateTimeParseException e) {
+                throw new BizException("生效日期格式不正确，应为 yyyy-MM-dd");
+            }
         }
         record.setApproveStatus("0");
         record.setRestoreFlag("0");
@@ -448,6 +454,18 @@ public class AdjustController {
         int day = Integer.parseInt(weekDay);
         String dayName = day >= 1 && day <= 7 ? DAY_NAMES[day] : "";
         return dayName + " " + start + "-" + end + "节 " + roomName;
+    }
+
+    private int parseSlot(Object value, String label) {
+        String text = str(value);
+        if (text == null || text.isBlank()) {
+            throw new BizException("请选择" + label);
+        }
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException e) {
+            throw new BizException(label + "格式不正确");
+        }
     }
 
     private String str(Object o) {
