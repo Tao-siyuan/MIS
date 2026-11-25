@@ -321,8 +321,8 @@ public class CourseController {
     }
 
     /**
-     * 课程申报：教师限素质拓展（17）；学院教务限专业必修（13）/专业选修（14）；
-     * 教务处限通识（15），并须指定下发学院，由学院教务补充后再交教务处审核。
+     * 课程申报：教师限素质拓展（17）；学院教务限院级必修（12）/专业必修（13）/专业选修（14）/实践教学（16）；
+     * 教务处限校级必修（11）/通识（15），通识须指定下发学院，由学院教务补充后再交教务处审核。
      */
     @PostMapping("/new-course-applies")
     @RequirePerm({"P06", "P21", "P07"})
@@ -335,12 +335,12 @@ public class CourseController {
         boolean schoolLevel = user.hasPerm("P07");
         boolean collegeLevel = !schoolLevel && user.hasPerm("P21");
         if (schoolLevel) {
-            if (!"15".equals(courseType)) {
-                throw new BizException("教务处仅可申报通识课程（15）");
+            if (!"11".equals(courseType) && !"15".equals(courseType)) {
+                throw new BizException("教务处仅可申报校级必修（11）或通识课程（15）");
             }
         } else if (collegeLevel) {
-            if (!"13".equals(courseType) && !"14".equals(courseType)) {
-                throw new BizException("学院教务仅可申报专业必修（13）或专业选修（14）课程");
+            if (!List.of("12", "13", "14", "16").contains(courseType)) {
+                throw new BizException("学院教务仅可申报院级必修（12）、专业必修（13）、专业选修（14）或实践教学（16）课程");
             }
         } else {
             if (user.getTeacherId() == null) {
@@ -359,13 +359,18 @@ public class CourseController {
         apply.setCredit(new BigDecimal(str(body.get("credit"))));
         apply.setHours(body.get("hours") == null ? 32 : Integer.valueOf(str(body.get("hours"))));
         if (schoolLevel) {
-            String dispatch = str(body.get("dispatchCollege"));
-            if (dispatch == null || dispatch.isBlank()) {
-                throw new BizException("通识课程申报须指定下发学院");
+            if ("15".equals(courseType)) {
+                String dispatch = str(body.get("dispatchCollege"));
+                if (dispatch == null || dispatch.isBlank()) {
+                    throw new BizException("通识课程申报须指定下发学院");
+                }
+                apply.setDispatchCollege(dispatch);
+                // 教务处申报的通识课程先下发学院补充，补充后由教务处审核
+                apply.setAuditStatus("4");
+            } else {
+                // 校级必修由教务处直接进入终审
+                apply.setAuditStatus("3");
             }
-            apply.setDispatchCollege(dispatch);
-            // 教务处申报的通识课程先下发学院补充，补充后由教务处审核
-            apply.setAuditStatus("4");
         } else if (collegeLevel) {
             // 学院教务自报课程直接进入教务处待审
             apply.setAuditStatus("3");

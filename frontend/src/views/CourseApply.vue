@@ -2,8 +2,8 @@
   <div>
     <h2 class="page-title">新增课程申报</h2>
     <p class="page-desc">
-      教师仅可申报素质拓展课程，学院教务可申报专业必修与专业选修课程，教务处申报通识课程并下发学院补充；
-      申报经学院初审、教务处审批后按编码规则生成课程号入库。
+      教务处可申报校级必修与通识课程（通识课程可下发学院补充），学院教务可申报院级必修、专业必修、
+      专业选修、实践教学课程，教师仅可申报素质拓展课程；申报经学院初审、教务处审批后按编码规则生成课程号入库。
     </p>
 
     <div class="panel">
@@ -94,7 +94,7 @@
             <el-option v-for="t in types" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="isSchoolOfficer" label="下发学院" required>
+        <el-form-item v-if="isSchoolOfficer && form.courseType === '15'" label="下发学院" required>
           <el-select v-model="form.dispatchCollege" filterable style="width: 100%" placeholder="通识课程下发学院补充">
             <el-option v-for="c in colleges" :key="c.collegeId" :label="c.collegeName" :value="c.collegeId" />
           </el-select>
@@ -215,16 +215,13 @@ const TYPE_NAMES = {
   16: '16 实践教学',
   17: '17 素质拓展'
 }
-/** 课程性质按角色限定：教务处 15；学院教务 13/14；教师 17 */
+/** 课程性质按角色限定：教务处 11/15；学院教务 12/13/14/16；教师 17 */
 const types = computed(() => {
-  if (isSchoolOfficer.value) return [{ value: '15', label: TYPE_NAMES[15] }]
-  if (isCollegeOfficer.value) {
-    return [
-      { value: '13', label: TYPE_NAMES[13] },
-      { value: '14', label: TYPE_NAMES[14] }
-    ]
-  }
-  return [{ value: '17', label: TYPE_NAMES[17] }]
+  let codes
+  if (isSchoolOfficer.value) codes = [11, 15]
+  else if (isCollegeOfficer.value) codes = [12, 13, 14, 16]
+  else codes = [17]
+  return codes.map((c) => ({ value: String(c), label: TYPE_NAMES[c] }))
 })
 const typeName = (t) => TYPE_NAMES[t] || t
 const collegeName = (id) => colleges.value.find((c) => c.collegeId === id)?.collegeName || '-'
@@ -268,10 +265,16 @@ async function doSupplement() {
 }
 
 async function submitApply() {
+  if (isSchoolOfficer.value && form.courseType === '15' && !form.dispatchCollege) {
+    ElMessage.warning('通识课程须指定下发学院')
+    return
+  }
   await api.applyCourse({ ...form })
   ElMessage.success(
     isSchoolOfficer.value
-      ? '通识课程已下发学院，待学院补充后由教务处审定'
+      ? form.courseType === '15'
+        ? '通识课程已下发学院，待学院补充后由教务处审定'
+        : '校级必修申报已提交，等待教务处审定'
       : isCollegeOfficer.value
         ? '申报已提交，等待教务处审定'
         : '申报已提交，等待学院初审'
