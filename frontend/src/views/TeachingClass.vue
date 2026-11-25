@@ -460,10 +460,15 @@ const planCourses = ref([])
 /** 选修课候选课程：本学院本学期尚未建立教学班的课程 */
 const electiveCourses = ref([])
 const colleges = ref([])
+/** 选修课建班仅可选专业选修(14)与素质拓展(17)课程 */
+const ELECTIVE_TYPES = ['14', '17']
 const filteredCourses = computed(() => {
   const enabled = courses.value.filter((c) => c.courseStatus === '1')
   if (!form.isNew) return enabled
-  return form.tcType === '2' ? electiveCourses.value : planCourses.value
+  if (form.tcType === '2') {
+    return electiveCourses.value.filter((c) => ELECTIVE_TYPES.includes(String(c.courseType)))
+  }
+  return planCourses.value
 })
 const coursePlaceholder = computed(() => {
   if (!form.isNew) return ''

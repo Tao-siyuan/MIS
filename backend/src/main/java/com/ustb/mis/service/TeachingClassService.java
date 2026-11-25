@@ -267,9 +267,11 @@ public class TeachingClassService {
                 scheduled.add(tc.getCourseId());
             }
         }
+        // 选修课建班仅限专业选修（14）与素质拓展（17）类课程
         List<Course> courses = courseMapper.selectList(Wrappers.<Course>lambdaQuery()
                 .eq(Course::getOpenCollege, collegeId)
                 .eq(Course::getCourseStatus, "1")
+                .in(Course::getCourseType, "14", "17")
                 .orderByAsc(Course::getCourseId));
         for (Course course : courses) {
             if (scheduled.contains(course.getCourseId())) {
@@ -352,6 +354,16 @@ public class TeachingClassService {
         // 任课教师由学院教务通过分配接口指派，保存时不做变更
 
         if (elective) {
+            // 选修课仅可选用专业选修（14）与素质拓展（17）类课程
+            if (isNew) {
+                Course course = courseMapper.selectById(tc.getCourseId());
+                if (course == null) {
+                    throw new BizException("课程不存在");
+                }
+                if (!"14".equals(course.getCourseType()) && !"17".equals(course.getCourseType())) {
+                    throw new BizException("选修课教学班仅可选择专业选修或素质拓展类课程");
+                }
+            }
             // 选修课不匹配行政班，容量由承接教师设定
             tc.setClassIds(null);
             if (isNew) {
